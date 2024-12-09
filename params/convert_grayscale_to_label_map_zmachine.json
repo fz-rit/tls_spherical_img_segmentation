@@ -1,0 +1,6 @@
+{
+    "root_dir": "/home/fzhcis/mylab/gdrive/projects_with_Jan/point_cloud_segmentation/unwrap_outputs/harvard_forest_33/33_03",
+    "seg_map_mono_filename": "seg_map_manual_33_03.tif",
+    "output_dir": "/home/fzhcis/mylab/gdrive/projects_with_Jan/point_cloud_segmentation/unwrap_outputs/harvard_forest_33/33_03/outputs",
+    "seg_map_label_filename": "label_map_manual_33_03.png"
+}

@@ -87,6 +87,13 @@ def load_data(config_file):
     # Get image and mask paths
     image_paths, mask_paths = get_image_maskt_paths(config_file)
 
+    # Split into training and validation
+    train_image_paths = image_paths[:-1]
+    train_mask_paths  = mask_paths[:-1]
+
+    val_image_paths = [image_paths[-1]]
+    val_mask_paths  = [mask_paths[-1]]
+
     # Define transforms
     img_transform = transforms.Compose([
         transforms.ToTensor(),
@@ -95,12 +102,20 @@ def load_data(config_file):
 
     # Create dataset and dataloader
     train_dataset = SegmentationPatchDataset(
-        image_paths=image_paths,
-        mask_paths=mask_paths,
+        image_paths=train_image_paths,
+        mask_paths=train_mask_paths,
         patch_splits=5,
         transform=img_transform
     )
 
-    train_loader = DataLoader(train_dataset, batch_size=4, shuffle=True, num_workers=2)
+    val_dataset = SegmentationPatchDataset(
+        image_paths=val_image_paths,
+        mask_paths=val_mask_paths,
+        patch_splits=5,
+        transform=img_transform
+    )
 
-    return train_loader
+    train_loader = DataLoader(train_dataset, batch_size=5, shuffle=True, num_workers=2)
+    val_loader = DataLoader(val_dataset, batch_size=5, shuffle=False, num_workers=2)
+
+    return train_dataset, train_loader, val_loader
