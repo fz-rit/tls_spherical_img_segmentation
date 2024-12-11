@@ -5,40 +5,30 @@ Semantic segmentation tasks are commonly evaluated using a range of metrics that
 
 ## 1. Pixel Accuracy (PA)
 - Measures the proportion of correctly classified pixels:
-  $$
-  PA = \frac{\text{Number of Correctly Predicted Pixels}}{\text{Total Number of Pixels}}
-  $$
+  $PA = \frac{\text{Number of Correctly Predicted Pixels}}{\text{Total Number of Pixels}}$
 - Simple and intuitive but may not reflect performance well in imbalanced datasets (e.g., where one class dominates).
 
 ---
 
 ## 2. Mean Pixel Accuracy (mPA)
 - Computes the average of the pixel accuracy for each class:
-  $$
-  mPA = \frac{1}{N} \sum_{i=1}^{N} \frac{\text{Correctly Predicted Pixels for Class } i}{\text{Total Pixels in Class } i}
-  $$
+  $mPA = \frac{1}{N} \sum_{i=1}^{N} \frac{\text{Correctly Predicted Pixels for Class } i}{\text{Total Pixels in Class } i}$
 - Gives equal importance to each class.
 
 ---
 
 ## 3. Intersection over Union (IoU) / Jaccard Index
 - Measures the overlap between the predicted segmentation and the ground truth:
-  $$
-  IoU = \frac{\text{True Positives}}{\text{True Positives + False Positives + False Negatives}}
-  $$
+  $IoU = \frac{\text{True Positives}}{\text{True Positives + False Positives + False Negatives}}$
 - Commonly computed per class and averaged to get **Mean IoU (mIoU)**:
-  $$
-  mIoU = \frac{1}{N} \sum_{i=1}^{N} IoU_i
-  $$
+  $mIoU = \frac{1}{N} \sum_{i=1}^{N} IoU_i$
 - A widely used metric that balances false positives and false negatives.
 
 ---
 
 ## 4. Dice Coefficient (F1 Score for Segmentation)
 - Similar to IoU, but emphasizes agreement between predicted and ground truth regions:
-  $$
-  Dice = \frac{2 \times \text{True Positives}}{2 \times \text{True Positives} + \text{False Positives} + \text{False Negatives}}
-  $$
+  $Dice = \frac{2 \times \text{True Positives}}{2 \times \text{True Positives} + \text{False Positives} + \text{False Negatives}}$
 - Commonly averaged across classes as **Mean Dice Coefficient**.
 
 ---
@@ -51,10 +41,8 @@ Semantic segmentation tasks are commonly evaluated using a range of metrics that
 
 ## 6. Frequency Weighted Intersection over Union (FWIoU)
 - A weighted version of IoU that accounts for class imbalance:
-  $$
-  FWIoU = \frac{1}{\sum_{i=1}^{N} T_i} \sum_{i=1}^{N} T_i \cdot IoU_i
-  $$
-  where \( T_i \) is the total number of pixels in class \( i \).
+  $FWIoU = \frac{1}{\sum_{i=1}^{N} T_i} \sum_{i=1}^{N} T_i \cdot IoU_i$
+  where $T_i$ is the total number of pixels in class $i$.
 
 ---
 
