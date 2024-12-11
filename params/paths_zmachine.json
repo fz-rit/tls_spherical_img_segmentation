@@ -1,0 +1,9 @@
+{
+    "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/harvard_forest_33/unet_data",
+    "image_dir": "images",
+    "mask_dir": "masks",
+    "image_irz_pattern": "image*_irz.tif",
+    "image_nxnynz_pattern": "image*_nxnynz.tif",
+    "mask_file_pattern": "image*_mask.png",
+    "model_dir": "models"
+}
