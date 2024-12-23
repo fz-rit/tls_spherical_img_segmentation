@@ -65,9 +65,13 @@ flowchart TB
    - **J (ReLU)**: Continues with a non-linear activation in the dense layer.  
    - **K (Output Layer: 10 units, Softmax)**: Outputs class probabilities (assuming 10 classes) using a Softmax activation.
 
+
+
 **Flow**:  
-- **Input** \(\rightarrow\) **Conv1 \(\rightarrow\) ReLU \(\rightarrow\) MaxPool** \(\rightarrow\)  
-- **Conv2 \(\rightarrow\) ReLU \(\rightarrow\) MaxPool** \(\rightarrow\) **Flatten** \(\rightarrow\)  
-- **Dense \(\rightarrow\) ReLU \(\rightarrow\) Output (Softmax)**
+- **Input** → **Conv1** → **ReLU** → **MaxPool** →  
+- **Conv2** → **ReLU** → **MaxPool** → **Flatten** →  
+- **Dense** → **ReLU** → **Output (Softmax)**
+
+
 
 This setup is a classic CNN pipeline commonly used for image classification tasks. You can tweak the number of filters, the kernel sizes, and the number of dense-layer units based on your specific dataset and performance requirements.
