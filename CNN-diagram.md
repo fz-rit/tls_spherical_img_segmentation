@@ -1,74 +1,73 @@
 Below is an example of a simple Convolutional Neural Network (CNN) architecture diagram. The diagram is followed by an explanation of each component and how they connect.
 
+
+
 ```mermaid
-flowchart LR
-    A((Input Images)) --> B["Conv Layer 1\n(32 filters, 3x3 kernel)"]
-    B --> C[ReLU Activation]
-    C --> D["MaxPooling\n(2x2)"]
-    D --> E["Conv Layer 2\n(64 filters, 3x3 kernel)"]
-    E --> F[ReLU Activation]
-    F --> G["MaxPooling\n(2x2)"]
-    G --> H[Flatten]
-    H --> I["Dense Layer\n(128 units)"]
-    I --> J[ReLU Activation]
-    J --> K["Output Layer\n(10 units, Softmax)"]
+flowchart TB
+    %% Define subgraph for input
+    subgraph Stage 0: Input
+        A((Input Images))
+    end
+
+    %% Define subgraph for first convolutional block
+    subgraph Stage 1: Convolution Block 1
+        B[Conv Layer 1: <br>32 filters, 3x3 kernel]
+        C[ReLU]
+        D[MaxPool 2x2]
+    end
+
+    %% Define subgraph for second convolutional block
+    subgraph Stage 2: Convolution Block 2
+        E[Conv Layer 2: <br>64 filters, 3x3 kernel]
+        F[ReLU]
+        G[MaxPool 2x2]
+    end
+
+    %% Define subgraph for fully connected (classification) part
+    subgraph Stage 3: Fully Connected
+        H[Flatten]
+        I[Dense Layer: 128 units]
+        J[ReLU]
+        K[Output Layer: <br>10 units, Softmax]
+    end
+
+    %% Show the flow
+    A --> B --> C --> D
+    D --> E --> F --> G
+    G --> H --> I --> J --> K
 ```
+
+> **Note**:  
+> - Above is a Mermaid flowchart. You can paste this into a GitHub Markdown file or the [Mermaid Live Editor](https://mermaid.live/edit) to see the rendered diagram.
+> - GitHub-flavored Mermaid often supports HTML tags like `<br>` in labels. If your particular renderer does not, simply remove `<br>` and keep the labels on one line, or explore other layout/styling options.
 
 ---
 
 ## Explanation of the CNN Architecture
 
-1. **Input Layer**  
-   - **Purpose**: Takes in the raw image data (e.g., 28×28 grayscale images or 224×224 color images).  
-   - **Shape**: Depends on the dataset (e.g., **(height, width, channels)**).
+1. **Stage 0 (Input)**
+   - **A (Input Images)**: The raw images are fed into the CNN.  
+     - Dimensions might be, for example, \(28 \times 28\) for MNIST, or \(32 \times 32\) for CIFAR-10, with 1 or 3 color channels.
 
-2. **Convolution Layer 1**  
-   - **Filters**: 32 (number of feature maps or kernels)  
-   - **Kernel Size**: 3×3 (typically used in many CNNs, but can vary)  
-   - **Purpose**: Automatically learns spatial features by sliding the 3×3 kernels over the input image.
+2. **Stage 1 (Convolution Block 1)**
+   - **B (Conv Layer 1)**: The first convolutional layer with 32 filters (kernels) of size 3×3.  
+   - **C (ReLU)**: Applies the Rectified Linear Unit \(\max(0, x)\) to introduce non-linearity.  
+   - **D (MaxPool 2×2)**: Downsamples feature maps by taking the maximum value over 2×2 patches, reducing spatial size.
 
-3. **ReLU Activation**  
-   - **Rectified Linear Unit** replaces all negative pixel values with zero.  
-   - **Purpose**: Introduces non-linearity, enabling the network to learn more complex features.
+3. **Stage 2 (Convolution Block 2)**
+   - **E (Conv Layer 2)**: Another convolutional layer, now with 64 filters (also 3×3).  
+   - **F (ReLU)**: Adds non-linearity again.  
+   - **G (MaxPool 2×2)**: Further downsampling to reduce the spatial dimensions.
 
-4. **MaxPooling Layer**  
-   - **Pool Size**: 2×2 (a common choice)  
-   - **Purpose**: Downsamples the spatial dimensions (height and width), reducing the number of parameters and helping to control overfitting.
+4. **Stage 3 (Fully Connected / Classification)**
+   - **H (Flatten)**: Flattens the 2D feature maps into a 1D vector.  
+   - **I (Dense Layer with 128 units)**: A fully connected layer that learns to combine extracted features into higher-level representations.  
+   - **J (ReLU)**: Continues with a non-linear activation in the dense layer.  
+   - **K (Output Layer: 10 units, Softmax)**: Outputs class probabilities (assuming 10 classes) using a Softmax activation.
 
-5. **Convolution Layer 2**  
-   - **Filters**: 64  
-   - **Kernel Size**: 3×3  
-   - **Purpose**: Learns higher-level or deeper features from the output of the first pooling layer.
+**Flow**:  
+- **Input** \(\rightarrow\) **Conv1 \(\rightarrow\) ReLU \(\rightarrow\) MaxPool** \(\rightarrow\)  
+- **Conv2 \(\rightarrow\) ReLU \(\rightarrow\) MaxPool** \(\rightarrow\) **Flatten** \(\rightarrow\)  
+- **Dense \(\rightarrow\) ReLU \(\rightarrow\) Output (Softmax)**
 
-6. **ReLU Activation**  
-   - Applied again to add non-linear transformations.
-
-7. **MaxPooling Layer**  
-   - **Pool Size**: 2×2  
-   - Further reduces spatial dimension and extracts more prominent features.
-
-8. **Flatten**  
-   - **Purpose**: Converts the 2D (or sometimes 3D) feature maps into a 1D vector, so it can be fed into a fully connected (dense) layer.
-
-9. **Dense Layer (128 units)**  
-   - A fully connected layer with 128 neurons.  
-   - **Purpose**: Learns to combine the extracted features into more abstract representations that are useful for classification.
-
-10. **ReLU Activation**  
-    - Again introduces non-linearity within the dense layer.
-
-11. **Output Layer (Softmax)**  
-    - **Units**: 10 (for example, if you have 10 classes to classify—like in MNIST digits).  
-    - **Activation**: Softmax, which outputs a probability distribution over the possible classes.
-
----
-
-### How They Connect
-1. **Input images** flow into the first convolution layer.
-2. The **convolution** filters extract features; the output is then passed through a **ReLU activation** function to introduce non-linearity.
-3. The output of ReLU is **pooled** (MaxPooling), reducing spatial dimensions.
-4. A second convolution + ReLU + pooling stack refines the features further.
-5. After the second pooling, the feature maps are **flattened** into a 1D vector.
-6. The flattened vector is passed to a **fully connected dense layer**, which learns more abstract representations of the data.
-7. The final **output layer** with a softmax activation gives class probabilities, allowing for multi-class classification.
-
+This setup is a classic CNN pipeline commonly used for image classification tasks. You can tweak the number of filters, the kernel sizes, and the number of dense-layer units based on your specific dataset and performance requirements.
