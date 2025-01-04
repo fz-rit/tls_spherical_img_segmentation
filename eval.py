@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
+from training import create_unet_6channels
 
 
 def load_model(config: dict, device: str) -> smp.Unet:
@@ -23,16 +24,12 @@ def load_model(config: dict, device: str) -> smp.Unet:
     model_dir = Path(config['root_dir']) / config['model_dir']
     # Load the model if there is a saved model, otherwise train a new model
     if model_dir.exists() and any(model_dir.glob('*.pth')):
-        model = smp.Unet(
-            encoder_name="resnet34",
-            encoder_weights=None,
-            in_channels=6,
-            classes=5
-        )
-        model.load_state_dict(torch.load(model_dir / 'model_epoch200.pth', weights_only=True))
-        print("======Loaded model from disk.======")
+        model = create_unet_6channels()
+        model_path = next(model_dir.glob('model_epoch150.pth'))
+        model.load_state_dict(torch.load(model_path, weights_only=True))
+        print(f"======Loaded model from disk: {model_path}.======")
     else:
-        model = train_unet(config)
+        model, _, _  = train_unet(config)
         print("####Trained a new model.####")
     
     model = model.to(device)
@@ -115,5 +112,5 @@ for i in range(num_samples):
 plt.tight_layout()
 plt.show()
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-fig.savefig(f"output_{timestamp}.png")
+fig.savefig(f"outputs/output_{timestamp}.png")
 print(f"Saved output_{timestamp}.png")

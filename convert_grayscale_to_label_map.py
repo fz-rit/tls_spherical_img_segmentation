@@ -82,7 +82,7 @@ def convert_grayscale_to_label_map(gray_image: np.ndarray) -> np.ndarray:
 
 if __name__ == '__main__':
 
-    json_path = Path('./input_params/convert_grayscale_to_label_map_zmachine.json')
+    json_path = Path('./params/convert_grayscale_to_label_map_zmachine.json')
     with open(json_path, 'r') as file:
         config = json.load(file)
 
