@@ -181,8 +181,8 @@ def load_data(config):
                                     A.VerticalFlip(p=0.5),
                                     A.RandomRotate90(p=0.5),
                                     A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=30, p=0.5),
-                                    BrightnessContrastOnlyFirst3Channels(p=0.5),
-                                    A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0),
+                                    BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
+                                    A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
                                                 std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
                                     A.pytorch.ToTensorV2()
                                 ],
