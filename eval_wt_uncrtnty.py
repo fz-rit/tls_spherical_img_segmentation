@@ -36,6 +36,47 @@ def load_model(config: dict, device: str) -> smp.Unet:
 
     return model
 
+
+def enable_dropout(model):
+    """
+    Enable dropout layers in the model while keeping the rest in evaluation mode.
+    """
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.train()
+
+def predict_with_uncertainty(model, image, num_samples=50):
+    # Ensure the model is in evaluation mode
+    model.eval()
+    # Enable dropout layers for MC sampling without affecting BatchNorm layers
+    enable_dropout(model)
+    
+    preds_samples = []
+    aleatoric_vars_samples = []
+    
+    with torch.no_grad():
+        for _ in range(num_samples):
+            preds, log_vars = model(image)
+            preds_samples.append(preds)
+            aleatoric_vars_samples.append(torch.exp(log_vars))
+    
+    preds_samples = torch.stack(preds_samples)  # Shape: (num_samples, B, num_classes, H, W)
+    aleatoric_vars_samples = torch.stack(aleatoric_vars_samples)
+    
+    # Epistemic uncertainty: variance over predictions
+    epistemic_var = preds_samples.var(dim=0)
+    # Aleatoric uncertainty: mean predicted variance
+    aleatoric_var = aleatoric_vars_samples.mean(dim=0)
+    
+    predictive_variance = epistemic_var + aleatoric_var
+    mean_preds = preds_samples.mean(dim=0)
+    
+    return mean_preds, predictive_variance
+
+
+
+
+
 config_file = 'params/paths_zmachine.json'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 with open(config_file, 'r') as f:
@@ -44,7 +85,8 @@ with open(config_file, 'r') as f:
 
 _, _, test_loader = load_data(config)
 model = load_model(config, device)
-model.eval()
+# model.eval()
+# enable_dropout(model)
 
 
 # Get one batch from the validation loader

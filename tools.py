@@ -53,8 +53,8 @@ def calc_metrics(true_flat: np.ndarray,
 
     Returns:
     cm (numpy.ndarray): Confusion matrix.
-    pixel_accuracy (float): Pixel accuracy.
-    mPA (float): Mean pixel accuracy.
+    overall_accuracy (float): Overall accuracy.
+    mAcc (float): Mean class accuracy.
     mIoU (float): Mean intersection over union.
     FWIoU (float): Frequency weighted intersection over union.
     dice_coefficient (float): Dice coefficient.
@@ -62,16 +62,16 @@ def calc_metrics(true_flat: np.ndarray,
 
     # Compute confusion matrix
     cm = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+    intersection = np.diag(cm)
+    # Overall Accuracy
+    overall_accuracy = intersection.sum() / cm.sum()
 
-    # Pixel Accuracy
-    pixel_accuracy = np.diag(cm).sum() / cm.sum()
-
-    # Mean Pixel Accuracy
-    class_accuracy = np.diag(cm) / cm.sum(axis=1)
-    mPA = np.nanmean(class_accuracy)
+    # Mean class Accuracy
+    class_accuracy = intersection / cm.sum(axis=1)
+    mAcc = np.nanmean(class_accuracy)
 
     # Intersection over Union (IoU) for each class
-    intersection = np.diag(cm)
+    
     union = cm.sum(axis=1) + cm.sum(axis=0) - np.diag(cm)
     IoU = intersection / union
     mIoU = np.nanmean(IoU)
@@ -84,4 +84,6 @@ def calc_metrics(true_flat: np.ndarray,
     dice = 2 * intersection / (cm.sum(axis=1) + cm.sum(axis=0))
     dice_coefficient = np.nanmean(dice)
 
-    return cm, pixel_accuracy, mPA, mIoU, FWIoU, dice_coefficient
+    return cm, overall_accuracy, mAcc, mIoU, FWIoU, dice_coefficient
+
+

@@ -25,7 +25,7 @@ def load_model(config: dict, device: str) -> smp.Unet:
     # Load the model if there is a saved model, otherwise train a new model
     if model_dir.exists() and any(model_dir.glob('*.pth')):
         model = create_unet_multi_channels()
-        model_path = next(model_dir.glob('model_epoch*.pth'))
+        model_path = next(model_dir.glob('model_epoch1*.pth'))
         model.load_state_dict(torch.load(model_path, weights_only=True))
         print(f"======Loaded model from disk: {model_path}.======")
     else:
@@ -54,7 +54,7 @@ imgs = imgs.to(device)                  # (N, 3, H, W)
 true_masks = true_masks.to(device)      # (N, H, W)
 
 with torch.no_grad():
-    preds = model(imgs)                 # (N, C, H, W)
+    preds, _ = model(imgs)                 # (N, C, H, W)
     # Convert logits to predicted class indices
     pred_masks = torch.argmax(preds, dim=1)  # (N, H, W)
 
