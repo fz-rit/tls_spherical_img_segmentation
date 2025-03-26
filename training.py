@@ -5,6 +5,7 @@ import torch.nn as nn
 from pathlib import Path
 import json
 import matplotlib.pyplot as plt
+import torch.onnx
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
@@ -83,6 +84,31 @@ def visualize_losses(train_losses, val_losses):
     plt.legend()
     plt.show()
 
+def save_model_locally(model, model_dir, epoch_num, dummy_shape, device):
+    model_dir.mkdir(parents=True, exist_ok=True)
+    print(f"----Created directory {model_dir}----")
+
+    # Save .pth (PyTorch state dict)
+    save_model_path = model_dir / f'model_epoch{epoch_num:03d}.pth'
+    torch.save(model.state_dict(), save_model_path)
+    print(f"----Model saved at {save_model_path}----")
+
+    # Save as ONNX
+    onnx_model_path = model_dir / f'model_epoch{epoch_num:03d}.onnx'
+
+    # Create a dummy input with the same shape as your input
+    dummy_input = torch.randn(dummy_shape).to(device)  # replace H, W as needed
+
+    torch.onnx.export(
+        model, 
+        dummy_input, 
+        onnx_model_path,
+        input_names=["input"],
+        output_names=["output"],
+        opset_version=11,  # common version; increase if needed
+        do_constant_folding=True
+    )
+    print(f"----ONNX model saved at {onnx_model_path}----")
 
 def train_unet(config, save_model=False):
     train_loader, val_loader, _ = load_data(config)
@@ -139,14 +165,15 @@ def train_unet(config, save_model=False):
 
         print(f"Epoch {epoch + 1}/{epoch_num}, Train Loss: {train_loss:.4f}, Val Loss: {val_loss:.4f}")
 
+
     if save_model:
         model_dir = Path(config['root_dir']) / config['model_dir']
-        if not model_dir.exists():
-            model_dir.mkdir(parents=True)
-            print(f"----Created directory {model_dir}----")
-        save_model_path = model_dir / f'model_epoch{epoch_num:03d}.pth'
-        torch.save(model.state_dict(), save_model_path)
-        print(f"----Model saved at {save_model_path}----")
+        dummy_shape = (5, 8, 512, 1440)
+        save_model_locally(model=model, 
+                        model_dir=model_dir,
+                        epoch_num=epoch_num, 
+                        dummy_shape=dummy_shape,
+                        device=device)
 
     visualize_losses(train_losses, val_losses)
     return model, train_losses, val_losses

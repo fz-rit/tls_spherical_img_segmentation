@@ -8,9 +8,7 @@ from pathlib import Path
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
-from typing import Tuple, Dict, List, Any
-import json
-from pprint import pprint
+from typing import Tuple, Dict, Any
 
 def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
     """
@@ -26,19 +24,23 @@ def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> 
     
     # Load the image cube (8-channel data)
     image_cube = np.load(image_cube_path, allow_pickle=True)
+    # print(f"Image cube loaded from {image_cube_path}, shape: {image_cube.shape}")
     
-    # Load the metadata from .json file
-    with open(metadata_path, 'r') as file:
-        metadata = json.load(file)
+    # Load the metadata
+    metadata = np.load(metadata_path, allow_pickle=True).item()  # use .item() to load it as a dictionary
+    # print(f"Metadata loaded from {metadata_path}")
 
-    return image_cube, metadata
+    return {
+        'image_cube': image_cube,
+        'metadata': metadata
+    }
 
 
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
                  image_file_paths, 
                  image_meta_paths,
-                 mask_paths=None,  # Ground truth mask may not be available.
+                 mask_paths, 
                  patch_splits=5, 
                  transform=None, 
                  mask_transform=None,
@@ -50,11 +52,12 @@ class SegmentationPatchDataset(Dataset):
         self.transform = transform
         self.mask_transform = mask_transform
         self.labels_map = labels_map
-        self.patch_coords = []  # Will store tuples: [(img_index, x_start, x_end)...]
+        self.patch_coords = []  # Will store tuples: (img_index, x_start, x_end)
 
         # Open a sample image to determine dimensions
-        image_cube, metadata = load_image_cube_and_metadata(self.image_file_paths[0], self.image_meta_paths[0])
-
+        data = load_image_cube_and_metadata(self.image_file_paths[0], self.image_meta_paths[0])
+        image_cube = data['image_cube']
+        metadata = data['metadata']
         w = image_cube.shape[1]
         patch_width = w // patch_splits
         
@@ -71,30 +74,33 @@ class SegmentationPatchDataset(Dataset):
     def __getitem__(self, idx):
         i, x_start, x_end = self.patch_coords[idx]
 
-        image_cube, metadata = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
+        data = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
+        image_cube = data['image_cube']
+        metadata = data['metadata']
         mask = np.array(Image.open(self.mask_paths[i]))
-        # Cut off the bottom to make the input to be divisible by 32
-        cropped_image = image_cube[:-28, x_start:x_end, ...]
+
+        top_crop, bottom_crop = 14, 526  # cut off the top and bottom 14 pixels
+        combined_img = image_cube[top_crop:bottom_crop, x_start:x_end, ...]
 
         # Crop the mask to match
-        mask = mask[:-28, x_start:x_end]
+        mask = mask[top_crop:bottom_crop, x_start:x_end]
 
         # Apply Albumentations transform if provided
         if self.transform:
-            transformed = self.transform(image=cropped_image, mask=mask)
-            cropped_image = transformed["image"]  # shape: (C, H, W) after ToTensorV2
+            transformed = self.transform(image=combined_img, mask=mask)
+            combined_img = transformed["image"]  # shape: (C, H, W) after ToTensorV2
             mask = transformed["mask"]          # shape: (H, W) or (1, H, W)
             mask = mask.long()
         else:
             # If no transform, convert to torch.Tensor manually
-            cropped_image = torch.from_numpy(cropped_image).permute(2, 0, 1).float() / 255.0
+            combined_img = torch.from_numpy(combined_img).permute(2, 0, 1).float() / 255.0
             mask = torch.from_numpy(mask).long()
 
-        return cropped_image, mask
+        return combined_img, mask
 
 
 
-def get_data_paths(config: Dict, verbose: bool = False) -> Tuple[Dict[str, List[Path]], Dict[str, List[Path]], Dict[str, List[Path]]]:
+def get_image_maskt_paths(config: dict) -> Tuple[list, list, list]:
     """
     Get image and mask paths from the config dictionary.
 
@@ -104,42 +110,12 @@ def get_data_paths(config: Dict, verbose: bool = False) -> Tuple[Dict[str, List[
     root_dir = Path(config['root_dir'])
     image_dir = root_dir / Path(config['image_dir'])
     mask_dir = root_dir / Path(config['mask_dir'])
-    train_val_test_split_file = Path(config['root_dir']) / config['train_val_test_split_file']
 
-    with open(train_val_test_split_file, 'r') as file:
-        tvt_splits = json.load(file)
+    image_file_paths = sorted(image_dir.glob(config['image_file_pattern']))
+    image_meta_paths = sorted(image_dir.glob(config['image_meta_pattern']))
+    mask_paths = sorted(mask_dir.glob(config['mask_file_pattern']))
 
-    image_file_path_dict = {}
-    image_meta_path_dict = {}
-    mask_path_dict = {}
-
-    for split in ['train', 'val', 'test']:
-        image_file_path_dict[split] = []
-        image_meta_path_dict[split] = []
-        mask_path_dict[split] = []
-
-        for num_str in sorted(tvt_splits[split]):
-            for image_file_path in image_dir.glob(config['image_file_pattern']):
-                if num_str in image_file_path.stem:
-                    image_file_path_dict[split].append(image_file_path)
-                    break
-
-            for image_meta_path in image_dir.glob(config['image_meta_pattern']):
-                if num_str in image_meta_path.stem:
-                    image_meta_path_dict[split].append(image_meta_path)
-                    break
-
-            for mask_path in mask_dir.glob(config['mask_file_pattern']):
-                if num_str in mask_path.stem:
-                    mask_path_dict[split].append(mask_path)
-                    break 
-    
-    if verbose:
-        pprint(image_file_path_dict)
-        pprint(image_meta_path_dict)
-        pprint(mask_path_dict)
-
-    return image_file_path_dict, image_meta_path_dict, mask_path_dict
+    return image_file_paths, image_meta_paths, mask_paths
 
 
 # class BrightnessContrastOnlyFirst3Channels(A.ImageOnlyTransform):
@@ -196,7 +172,7 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
 
 def load_data(config):
     # Get image and mask paths
-    image_file_path_dict, image_meta_path_dict, mask_path_dict = get_data_paths(config)
+    image_file_paths, image_meta_paths, mask_paths = get_image_maskt_paths(config)
 
     labels_map = {
         0: 'Void',
@@ -206,6 +182,19 @@ def load_data(config):
         4: 'Roots',
         5: 'Objects'
     }
+
+    # Split into training and validation
+    train_image_file_paths = image_file_paths[:2]
+    train_image_meta_paths = image_meta_paths[:2]
+    train_mask_paths = mask_paths[:2]
+
+    val_image_file_paths = [image_file_paths[2]]
+    val_image_meta_paths = [image_meta_paths[2]]
+    val_mask_paths = [mask_paths[2]]
+
+    test_image_file_paths = [image_file_paths[3]]
+    test_image_meta_paths = [image_meta_paths[3]]
+    test_mask_paths = [mask_paths[3]]
 
     # ---- Define Albumentations transforms ----
     train_transform = A.Compose([
@@ -231,50 +220,38 @@ def load_data(config):
                                 ToTensorV2()
                             ], additional_targets={'mask': 'mask'})
 
-    # ---- Create dataloaders for train, val, and test ----
-    dataloaders = {}
-    for split in ['train', 'val', 'test']:
-        image_file_paths = image_file_path_dict[split]
-        image_meta_paths = image_meta_path_dict[split]
-        mask_paths = mask_path_dict[split]
+    # ---- Create dataset and dataloader ----
+    train_dataset = SegmentationPatchDataset(
+        image_file_paths=train_image_file_paths,
+        image_meta_paths=train_image_meta_paths,
+        mask_paths=train_mask_paths,
+        patch_splits=5,
+        transform=train_transform,  # Albumentations for training
+        labels_map=labels_map
+    )
 
-        dataset = SegmentationPatchDataset(
-            image_file_paths=image_file_paths,
-            image_meta_paths=image_meta_paths,
-            mask_paths=mask_paths,
-            patch_splits=5,
-            transform=train_transform if split == 'train' else val_transform,
-            labels_map=labels_map
-        )
+    val_dataset = SegmentationPatchDataset(
+        image_file_paths=val_image_file_paths,
+        image_meta_paths=val_image_meta_paths,
+        mask_paths=val_mask_paths,
+        patch_splits=5,
+        transform=val_transform,  
+        labels_map=labels_map
+    )
 
-        dataloaders[split] = DataLoader(dataset, batch_size=5, shuffle=True if split == 'train' else False, num_workers=2)
+    test_dataset = SegmentationPatchDataset(
+        image_file_paths=test_image_file_paths,
+        image_meta_paths=test_image_meta_paths,
+        mask_paths=test_mask_paths,
+        patch_splits=5,
+        transform=val_transform,  
+        labels_map=labels_map
+    )
 
-    train_loader = dataloaders['train']
-    val_loader = dataloaders['val']
-    test_loader = dataloaders['test']
+
+
+    train_loader = DataLoader(train_dataset, batch_size=5, shuffle=True, num_workers=2)
+    val_loader = DataLoader(val_dataset, batch_size=5, shuffle=False, num_workers=2)
+    test_loader = DataLoader(test_dataset, batch_size=5, shuffle=False, num_workers=2)
+
     return train_loader, val_loader, test_loader
-
-
-if __name__ == "__main__":
-    config_file = 'params/paths_zmachine.json'
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-    
-    train_loader, val_loader, test_loader = load_data(config)
-    print(f"Training data: {len(train_loader.dataset)} samples")
-    print(f"Validation data: {len(val_loader.dataset)} samples")
-    print(f"Test data: {len(test_loader.dataset)} samples")
-    print("Data loaders created successfully!")
-    print("Sample batch from training loader:")
-    for imgs, masks in train_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-    print("Sample batch from validation loader:")
-    for imgs, masks in val_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-    print("Sample batch from test loader:")
-    for imgs, masks in test_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-

@@ -4,6 +4,7 @@ import json
 from sklearn.metrics import confusion_matrix
 import numpy as np
 from typing import Tuple
+from matplotlib.colors import ListedColormap
 
 config_file = 'params/paths_zmachine.json'
 with open(config_file, 'r') as f:
@@ -40,6 +41,29 @@ def checkout_class_freq(config):
 # Class 3-Bark: 21.54% of pixels
 # Class 4-Soil: 16.14% of pixels
 
+def drop_zero_in_cm(cm: np.ndarray) -> np.ndarray:
+    """
+    Drop rank i if it is all zeros.
+
+    Args:
+    cm (numpy.ndarray): Confusion matrix.
+
+    Returns:
+    cm_zero_dropped (numpy.ndarray): Confusion matrix with rank i dropped if it is all zeros.
+    """
+    for idx in range(cm.shape[0]):
+        row = cm[idx]
+        col = cm[:, idx]
+        if not np.any(col) or not np.any(row):
+            print("⚠️Warning: Dropping rank", idx, "from confusion matrix because it is all zeros.")
+            print("Before dropping:")
+            print(cm)
+            cm = np.delete(cm, idx, axis=0)
+            cm = np.delete(cm, idx, axis=1)
+            print("After dropping:")
+            print(cm)
+    return cm
+
 def calc_metrics(true_flat: np.ndarray, 
                  pred_flat: np.ndarray, 
                  num_classes: int) -> Tuple[np.ndarray, float, float, float, float, float]:
@@ -61,29 +85,52 @@ def calc_metrics(true_flat: np.ndarray,
     """
 
     # Compute confusion matrix
-    cm = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
-    intersection = np.diag(cm)
+    conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+    # print("Confusion Matrix:")
+    # print(cm)
+    conf_mtx_zero_dropped = drop_zero_in_cm(conf_mtx)
+
+    intersection = np.diag(conf_mtx_zero_dropped)
     # Overall Accuracy
-    overall_accuracy = intersection.sum() / cm.sum()
+    overall_accuracy = intersection.sum() / conf_mtx_zero_dropped.sum()
 
     # Mean class Accuracy
-    class_accuracy = intersection / cm.sum(axis=1)
+    class_accuracy = intersection / conf_mtx_zero_dropped.sum(axis=1)
     mAcc = np.nanmean(class_accuracy)
 
     # Intersection over Union (IoU) for each class
-    
-    union = cm.sum(axis=1) + cm.sum(axis=0) - np.diag(cm)
+    union = conf_mtx_zero_dropped.sum(axis=1) + conf_mtx_zero_dropped.sum(axis=0) - np.diag(conf_mtx_zero_dropped)
     IoU = intersection / union
     mIoU = np.nanmean(IoU)
 
     # Frequency Weighted IoU
-    freq = cm.sum(axis=1) / cm.sum()
+    freq = conf_mtx_zero_dropped.sum(axis=1) / conf_mtx_zero_dropped.sum()
     FWIoU = (freq * IoU).sum()
 
     # Dice Coefficient for each class
-    dice = 2 * intersection / (cm.sum(axis=1) + cm.sum(axis=0))
+    dice = 2 * intersection / (conf_mtx_zero_dropped.sum(axis=1) + conf_mtx_zero_dropped.sum(axis=0))
     dice_coefficient = np.nanmean(dice)
 
-    return cm, overall_accuracy, mAcc, mIoU, FWIoU, dice_coefficient
+    return conf_mtx_zero_dropped, overall_accuracy, mAcc, mIoU, FWIoU, dice_coefficient
 
 
+def custom_cmap():
+    # Define your custom colors
+    COLOR_TO_INDEX = {
+        "0,0,0": 0,
+        "128,0,128": 1,
+        "165,42,42": 2,
+        "0,128,0": 3,
+        "255,165,0": 4,
+        "255,255,0": 5
+    }
+
+    # Convert color strings to RGB tuples normalized to [0, 1]
+    color_list = []
+    for rgb_str in sorted(COLOR_TO_INDEX, key=COLOR_TO_INDEX.get):  # sort by index
+        rgb = [int(x)/255 for x in rgb_str.split(',')]
+        color_list.append(rgb)
+
+    # Create the colormap
+    custom_cmap = ListedColormap(color_list)
+    return custom_cmap
