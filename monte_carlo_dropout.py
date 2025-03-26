@@ -137,7 +137,6 @@ class MonteCarloDropoutUncertainty(nn.Module):
             binarized_map_img = Image.fromarray((binarized_map * 255).astype(np.uint8))   
             binarized_map_img.save(output_path)
         print(f"🍀Individual maps saved to {subplot_save_dir}.")
-        print(f"Output resolution: {self.uncertainty_map.shape}")
 
 
     def execute(self, mc_iterations=20, 

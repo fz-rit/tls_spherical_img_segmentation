@@ -2,12 +2,14 @@ import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, resize_image_or_mask
 from training import train_unet, create_unet_multi_channels
-from tools import calc_metrics, custom_cmap
+from tools import calc_metrics, custom_cmap, get_pil_palette
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
 from monte_carlo_dropout import MonteCarloDropoutUncertainty
+from PIL import Image
+import numpy as np
 
 def load_model(config: dict, device: str) -> smp.Unet:
     """
@@ -21,12 +23,12 @@ def load_model(config: dict, device: str) -> smp.Unet:
     """
     
     model_dir = Path(config['root_dir']) / config['model_dir']
+    model_file = model_dir / config['model_file']
     # Load the model if there is a saved model, otherwise train a new model
-    if model_dir.exists() and any(model_dir.glob('*.pth')):
+    if model_file.exists():
         model = create_unet_multi_channels()
-        model_path = next(model_dir.glob('model_epoch210.pth'))
-        model.load_state_dict(torch.load(model_path, weights_only=True))
-        print(f"======Loaded model from disk: {model_path}.======")
+        model.load_state_dict(torch.load(model_file, weights_only=True))
+        print(f"======Loaded model from disk: {model_file.stem}.======")
     else:
         model, _, _  = train_unet(config)
         print("####Trained a new model.####")
@@ -36,15 +38,32 @@ def load_model(config: dict, device: str) -> smp.Unet:
     return model
 
 
+def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
+    """
+    Save the mask as a monochrome and color image.
+
+    Args:
+    mask (np.ndarray): Mask array.
+    mono_path (Path): Path to save the monochrome image.
+    color_path (Path): Path to save the color image.
+    """
+    mask = mask.astype(np.uint8)
+    mask_mono = Image.fromarray(mask)
+    mask_mono.save(mono_path)
+    print(f"📸Monochrome mask saved to {mono_path}")
+
+    mask_color = Image.fromarray(mask)
+    mask_color.putpalette(get_pil_palette())
+    mask_color.save(color_path)
+    print(f"🎨Color mask saved to {color_path}")
+
 
 def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None):
     """"
-    Visualize the image and masks by patch.
-
-
+    Visualize the image and masks.
     """
     N_CLASSES = 6
-    num_samples = min(5, len(imgs))  # Let's visualize up to 5 samples
+    num_samples = len(imgs)  # Let's visualize up to 5 samples
     fig, axs = plt.subplots(3, num_samples, figsize=(10, 6*num_samples))
 
     for i in range(num_samples):
@@ -93,9 +112,15 @@ def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None
     plt.tight_layout()
     plt.show()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = f"outputs/output_{timestamp}.png" if output_path is None else output_path
+    output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
     fig.savefig(output_path)
     print(f"㊗️Segmentation map saved to {output_path}")
+
+    # Save the pred_mask in rbg image.
+    pred_mask_mono_path = output_path.parent / f"pred_mask_mono_{timestamp}.png"
+    pred_mask_color_path = output_path.parent / f"pred_mask_color_{timestamp}.png"
+    save_mask_as_image(pred_mask, pred_mask_mono_path, pred_mask_color_path)
+
 
 
 def evaluate(imgs, true_masks, config, 
@@ -157,14 +182,14 @@ def main():
         config = json.load(f)
 
     _, _, test_loader = load_data(config)
-    desired_index = 0 
-    imgs, true_masks = list(test_loader)[desired_index]
+    test_img_idx = config['test_img_idx'] 
+    imgs, true_masks = list(test_loader)[test_img_idx]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    key_str = str(test_loader.dataset.image_file_paths[0].stem).split('_')[1][-4:]
-    output_path_1 = Path(config['root_dir']) / 'outputs' / f'combined_output_{key_str}_{timestamp}_split.png'
-    output_path_2 = Path(config['root_dir']) / 'outputs' / f'combined_output_{key_str}_{timestamp}.png'
-    output_path_3 = Path(config['root_dir']) / 'outputs' / f'uncertainty_map_{key_str}_{timestamp}.png'
+    key_str = str(test_loader.dataset.image_file_paths[test_img_idx].stem).split('_')[1][-4:]
+    output_path_1 = Path(config['root_dir']) / 'outputs' / key_str / f'combined_output_{key_str}_{timestamp}_split.png'
+    output_path_2 = Path(config['root_dir']) / 'outputs' / key_str /f'combined_output_{key_str}_{timestamp}.png'
+    output_path_3 = Path(config['root_dir']) / 'outputs' / key_str /f'uncertainty_map_{key_str}_{timestamp}.png'
 
     evaluate(imgs, true_masks, config, device, output_path_1, output_path_2, output_path_3)  
 

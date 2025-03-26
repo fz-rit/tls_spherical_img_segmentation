@@ -7,5 +7,7 @@
     "mask_file_pattern": "*_mask.png",
     "train_val_test_split_file": "train_val_test_split.json",
     "model_dir": "models",
-    "epoch_num": 210
+    "epoch_num": 220,
+    "model_file": "model_epoch_220.pth",
+    "test_img_idx": 1
 }

@@ -145,3 +145,23 @@ def custom_cmap():
     # Create the colormap
     custom_cmap = ListedColormap(color_list)
     return custom_cmap
+
+
+def get_pil_palette():
+    # Define colors in [0, 1] format
+    color_list = [
+        [0.0, 0.0, 0.0],           # black
+        [0.502, 0.0, 0.502],       # purple
+        [0.647, 0.165, 0.165],     # brown
+        [0.0, 0.502, 0.0],         # green
+        [1.0, 0.647, 0.0],         # orange
+        [1.0, 1.0, 0.0]            # yellow
+    ]
+
+    # Convert to 0–255 and flatten
+    flat_palette = [int(x * 255) for rgb in color_list for x in rgb]
+
+    # Pad with zeros to length 768 (PIL expects full 256 colors x 3 channels)
+    flat_palette += [0] * (768 - len(flat_palette))
+
+    return flat_palette
