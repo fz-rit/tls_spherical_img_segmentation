@@ -12,6 +12,9 @@ from typing import Tuple, Dict, List, Any
 import json
 from pprint import pprint
 
+PATCH_PER_IMAGE = 6
+PATCH_WIDTH = 256
+
 def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
     """
     Loads an image cube and its metadata from saved .npy files.
@@ -26,10 +29,6 @@ def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> 
     
     # Load the image cube (8-channel data)
     image_cube = np.load(image_cube_path, allow_pickle=True)
-    print(f"Loaded image cube from {image_cube_path}. Shape: {image_cube.shape}")
-
-    # # Resize the input image to be divisible by 32: (540, 1440) -> (512, 1536)
-    # image_cube = resize_image_and_mask(image_cube, None, (512, 1536))
     
     # Load the metadata from .json file
     with open(metadata_path, 'r') as file:
@@ -37,30 +36,62 @@ def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> 
 
     return image_cube, metadata
 
-# def resize_image_and_mask(image, new_size):
-#     """
-#     Resize the image and mask to the new size.
 
-#     Parameters:
-#     - image: The image to resize.
-#     - mask: The mask to resize.
-#     - new_size: The new size to resize to.
+def resize_image_or_mask(arr, target_size):
+    """
+    Resize a 2D mask or 3D image cube using PIL.
+    
+    Args:
+        arr (np.ndarray): Input array of shape (H, W) or (H, W, C)
+        target_size (tuple): (target_height, target_width)
+    
+    Returns:
+        np.ndarray: Resized array with shape:
+                    - (target_H, target_W) if input was 2D
+                    - (target_H, target_W, C) if input was 3D
+    """
+    target_h, target_w = target_size
 
-#     Returns:
-#     - The resized image and mask.
-#     """
-#     # Resize the image
-#     image = Image.fromarray(image)
-#     image = image.resize(new_size, Image.BILINEAR)
-#     image = np.array(image)
+    # Ensure dtype is supported by PIL
+    if arr.dtype == np.int64:
+        arr = arr.astype(np.int32)
+    elif arr.dtype == np.float64:
+        arr = arr.astype(np.float32)
 
-#     # Resize the mask
-#     if mask is not None:
-#         mask = Image.fromarray(mask)
-#         mask = mask.resize(new_size, Image.NEAREST)
-#         mask = np.array(mask)
+    if arr.ndim == 2:
+        # It's a 2D mask → use NEAREST
+        img = Image.fromarray(arr)
+        resized = img.resize((target_w, target_h), resample=Image.NEAREST)
+        return np.array(resized)
 
-#     return image, mask
+    elif arr.ndim == 3:
+        # It's an image cube → resize each channel using BILINEAR
+        resized_channels = []
+        for c in range(arr.shape[2]):
+            img_c = Image.fromarray(arr[:, :, c])
+            img_resized = img_c.resize((target_w, target_h), resample=Image.BILINEAR)
+            resized_channels.append(np.array(img_resized))
+        return np.stack(resized_channels, axis=2)
+
+    else:
+        raise ValueError(f"Input array must be 2D or 3D, got shape {arr.shape}")
+    
+def resize_image_and_mask(image, mask, target_size):
+    """
+    Resize an image and its corresponding mask to the target size.
+    
+    Args:
+        image (np.ndarray): Input image of shape (H, W, C)
+        mask (np.ndarray): Input mask of shape (H, W)
+        target_size (tuple): (target_height, target_width)
+    
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Resized image and mask.
+    """
+    resized_image = resize_image_or_mask(image, target_size)
+    resized_mask = resize_image_or_mask(mask, target_size)
+    return resized_image, resized_mask
+
 
 
 class SegmentationPatchDataset(Dataset):
@@ -68,7 +99,7 @@ class SegmentationPatchDataset(Dataset):
                  image_file_paths, 
                  image_meta_paths,
                  mask_paths=None,  # Ground truth mask may not be available.
-                 patch_splits=5, 
+                 patch_splits=PATCH_PER_IMAGE, 
                  transform=None, 
                  mask_transform=None,
                  labels_map=None):
@@ -81,11 +112,7 @@ class SegmentationPatchDataset(Dataset):
         self.labels_map = labels_map
         self.patch_coords = []  # Will store tuples: [(img_index, x_start, x_end)...]
 
-        # Open a sample image to determine dimensions
-        image_cube, metadata = load_image_cube_and_metadata(self.image_file_paths[0], self.image_meta_paths[0])
-
-        w = image_cube.shape[1]
-        patch_width = w // patch_splits
+        patch_width = PATCH_WIDTH
         
         # Create patch coordinates for all images
         for i in range(len(self.image_file_paths)):
@@ -100,26 +127,26 @@ class SegmentationPatchDataset(Dataset):
     def __getitem__(self, idx):
         i, x_start, x_end = self.patch_coords[idx]
 
-        image_cube, metadata = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
+        image_cube, _ = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
         mask = np.array(Image.open(self.mask_paths[i]))
-        # Cut off the bottom to make the input to be divisible by 32
-        cropped_image = image_cube[:-28, x_start:x_end, ...]
+        # Resize the input image and mask to be divisible by 32: (540, 1440) -> (512, 1536)
+        image_cube_resized, mask_resized = resize_image_and_mask(image_cube, mask, (512, 1536))
 
-        # Crop the mask to match
-        mask = mask[:-28, x_start:x_end]
+        image_patch = image_cube_resized[:, x_start:x_end, :]
+        mask_patch = mask_resized[:, x_start:x_end]
 
         # Apply Albumentations transform if provided
         if self.transform:
-            transformed = self.transform(image=cropped_image, mask=mask)
-            cropped_image = transformed["image"]  # shape: (C, H, W) after ToTensorV2
-            mask = transformed["mask"]          # shape: (H, W) or (1, H, W)
-            mask = mask.long()
+            transformed = self.transform(image=image_patch, mask=mask_patch)
+            image_patch = transformed["image"]  # shape: (C, H, W) after ToTensorV2
+            mask_patch = transformed["mask"]          # shape: (H, W) or (1, H, W)
+            mask_patch = mask_patch.long()
         else:
             # If no transform, convert to torch.Tensor manually
-            cropped_image = torch.from_numpy(cropped_image).permute(2, 0, 1).float() / 255.0
-            mask = torch.from_numpy(mask).long()
+            image_patch = torch.from_numpy(image_patch).permute(2, 0, 1).float() / 255.0
+            mask_patch = torch.from_numpy(mask_patch).long()
 
-        return cropped_image, mask
+        return image_patch, mask_patch
 
 
 
@@ -271,12 +298,12 @@ def load_data(config):
             image_file_paths=image_file_paths,
             image_meta_paths=image_meta_paths,
             mask_paths=mask_paths,
-            patch_splits=5,
+            patch_splits=PATCH_PER_IMAGE,
             transform=train_transform if split == 'train' else val_transform,
             labels_map=labels_map
         )
 
-        dataloaders[split] = DataLoader(dataset, batch_size=5, shuffle=True if split == 'train' else False, num_workers=2)
+        dataloaders[split] = DataLoader(dataset, batch_size=PATCH_PER_IMAGE, shuffle=True if split == 'train' else False, num_workers=2)
 
     train_loader = dataloaders['train']
     val_loader = dataloaders['val']

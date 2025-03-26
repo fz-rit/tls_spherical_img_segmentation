@@ -117,21 +117,30 @@ def calc_metrics(true_flat: np.ndarray,
 
 
 def custom_cmap():
-    # Define your custom colors
-    COLOR_TO_INDEX = {
-        "0,0,0": 0,
-        "128,0,128": 1,
-        "165,42,42": 2,
-        "0,128,0": 3,
-        "255,165,0": 4,
-        "255,255,0": 5
-    }
+    # # Define your custom colors
+    # COLOR_TO_INDEX = {
+    #     "0,0,0": 0,
+    #     "128,0,128": 1,
+    #     "165,42,42": 2,
+    #     "0,128,0": 3,
+    #     "255,165,0": 4,
+    #     "255,255,0": 5
+    # }
 
-    # Convert color strings to RGB tuples normalized to [0, 1]
-    color_list = []
-    for rgb_str in sorted(COLOR_TO_INDEX, key=COLOR_TO_INDEX.get):  # sort by index
-        rgb = [int(x)/255 for x in rgb_str.split(',')]
-        color_list.append(rgb)
+    # # Convert color strings to RGB tuples normalized to [0, 1]
+    # color_list = []
+    # for rgb_str in sorted(COLOR_TO_INDEX, key=COLOR_TO_INDEX.get):  # sort by index
+    #     rgb = [int(x)/255 for x in rgb_str.split(',')]
+    #     color_list.append(rgb)
+    color_list = [
+                    [0.0, 0.0, 0.0],           # index 0
+                    [0.502, 0.0, 0.502],       # index 1
+                    [0.647, 0.165, 0.165],     # index 2
+                    [0.0, 0.502, 0.0],         # index 3
+                    [1.0, 0.647, 0.0],         # index 4
+                    [1.0, 1.0, 0.0]            # index 5
+                ]
+
 
     # Create the colormap
     custom_cmap = ListedColormap(color_list)

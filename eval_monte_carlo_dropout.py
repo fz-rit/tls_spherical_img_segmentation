@@ -1,6 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
-from prepare_dataset import load_data
+from prepare_dataset import load_data, resize_image_or_mask
 from training import train_unet, create_unet_multi_channels
 from tools import calc_metrics, custom_cmap
 import json
@@ -24,7 +24,7 @@ def load_model(config: dict, device: str) -> smp.Unet:
     # Load the model if there is a saved model, otherwise train a new model
     if model_dir.exists() and any(model_dir.glob('*.pth')):
         model = create_unet_multi_channels()
-        model_path = next(model_dir.glob('model_epoch200.pth'))
+        model_path = next(model_dir.glob('model_epoch210.pth'))
         model.load_state_dict(torch.load(model_path, weights_only=True))
         print(f"======Loaded model from disk: {model_path}.======")
     else:
@@ -50,11 +50,12 @@ def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None
     for i in range(num_samples):
         # Original image: convert from tensor [C,H,W] to [H,W,C] and un-normalize if needed
         img = imgs[i].permute(1, 2, 0).numpy()  
-        
-        # True mask and predicted mask are [H,W] arrays with class indices.
-        # For visualization, we show them as a simple colormapped image.
         true_mask = true_masks[i].numpy()
         pred_mask = pred_masks[i].numpy()
+
+        img = resize_image_or_mask(img, (540, 1440)) 
+        true_mask = resize_image_or_mask(true_mask, (540, 1440))
+        pred_mask = resize_image_or_mask(pred_mask, (540, 1440))
 
         # Compute metrics between true_mask and pred_mask
         true_flat = true_mask.flatten()
@@ -114,16 +115,17 @@ def evaluate(imgs, true_masks, config,
     imgs = imgs.to(device)                  # (N, C, H, W)
     true_masks = true_masks.to(device)      # (N, H, W)
 
-    print("🔮Evaluating the model...")
-    print(f"imgs.shape: {imgs.shape}, true_masks.shape: {true_masks.shape}")
+    
 
     # ---------Evaluate model in Monte Carlo Dropout mode and estimate uncertainty.------
+    print("🔮Evaluating the model in Bayesian mode...")
     mcdu = MonteCarloDropoutUncertainty(model, imgs)
-    mcdu.execute(mc_iterations=20, 
+    mcdu.execute(mc_iterations=40, 
                 mutual_information=True, 
                 output_path=output_path_3)
 
     # -----Evaluate model in normal mode.--------------
+    print("🙂Evaluating the model in normal mode...")
     model.eval()
     with torch.no_grad():
         preds = model(imgs)                 # (N, C, H, W)
@@ -137,7 +139,6 @@ def evaluate(imgs, true_masks, config,
 
     # Images: (N, 3, H, W) -> concatenate along width
     combined_img = torch.cat([img for img in imgs], dim=2)  # shape: (3, H, W * N)
-
     # Masks: (N, H, W) -> concatenate along width
     combined_true_mask = torch.cat([mask for mask in true_masks], dim=1)  # shape: (H, W * N)
     combined_pred_mask = torch.cat([mask for mask in pred_masks], dim=1)  # shape: (H, W * N)
@@ -156,7 +157,7 @@ def main():
         config = json.load(f)
 
     _, _, test_loader = load_data(config)
-    desired_index = 1 
+    desired_index = 0 
     imgs, true_masks = list(test_loader)[desired_index]
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")

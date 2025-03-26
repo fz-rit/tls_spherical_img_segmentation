@@ -5,8 +5,7 @@ import numpy as np
 import math
 from PIL import Image
 import torch.nn.functional as F
-
-
+from prepare_dataset import resize_image_or_mask
 
 
 class DecoderBlockWithDropout(nn.Module):
@@ -88,6 +87,7 @@ class MonteCarloDropoutUncertainty(nn.Module):
             ep_uncertainty = self.predictive_entropy(self.preds)
 
         self.uncertainty_map = ep_uncertainty.squeeze().cpu().numpy() # [H, WN]
+        self.uncertainty_map = resize_image_or_mask(self.uncertainty_map, (540, 1440))
 
 
     def binarize_uncertainty_map(self):
@@ -107,7 +107,7 @@ class MonteCarloDropoutUncertainty(nn.Module):
         """
         subplot_count = 1 + len(self.binarized_uncertainty_maps)
         fig, axs = plt.subplots(subplot_count, 1, figsize=(10, 4*subplot_count))
-        unctt_map = axs[0].imshow(self.uncertainty_map, cmap='jet')  # 'hot', 'jet', 'viridis', 'inferno', 'magma', 'cividis'
+        unctt_map = axs[0].imshow(self.uncertainty_map, cmap='inferno')  # 'hot', 'jet', 'viridis', 'inferno', 'magma', 'cividis'
         axs[0].set_title("Epistemic Uncertainty Map (normalized)")
 
 
@@ -125,19 +125,19 @@ class MonteCarloDropoutUncertainty(nn.Module):
         titles = [f'Binarized Uncertainty Map_Threshold_{t:.2f}' for t in self.thresholds]
         subplot_save_dir = output_path.parent / f'uncertainty_maps_{str(output_path.stem).split("_map_")[1]}'
         subplot_save_dir.mkdir(exist_ok=True)
-        complement_patch = np.zeros((28, self.uncertainty_map.shape[1])) # Match the output resolution to (540, 1440)
-        extended_uncertainty_map = np.vstack([self.uncertainty_map, complement_patch]) 
-        unctt_map_img = Image.fromarray((extended_uncertainty_map * 255).astype(np.uint8))
+        # complement_patch = np.zeros((28, self.uncertainty_map.shape[1])) # Match the output resolution to (540, 1440)
+        # extended_uncertainty_map = np.vstack([self.uncertainty_map, complement_patch]) 
+        unctt_map_img = Image.fromarray((self.uncertainty_map * 255).astype(np.uint8))
         output_path = subplot_save_dir / 'uncertainty_map.png'
         unctt_map_img.save(output_path)
         
         for i, binarized_map in enumerate(self.binarized_uncertainty_maps):
             output_path = subplot_save_dir / f'{titles[i]}.png'
-            binarized_map = np.vstack([binarized_map, complement_patch])
+            # binarized_map = np.vstack([binarized_map, complement_patch])
             binarized_map_img = Image.fromarray((binarized_map * 255).astype(np.uint8))   
             binarized_map_img.save(output_path)
         print(f"🍀Individual maps saved to {subplot_save_dir}.")
-        print(f"Output resolution: {extended_uncertainty_map.shape}")
+        print(f"Output resolution: {self.uncertainty_map.shape}")
 
 
     def execute(self, mc_iterations=20, 

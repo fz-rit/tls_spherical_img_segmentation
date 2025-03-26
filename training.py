@@ -1,13 +1,13 @@
 import segmentation_models_pytorch as smp
 import torch
-from prepare_dataset import load_data
+from prepare_dataset import load_data, PATCH_WIDTH
 import torch.nn as nn
 from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 import torch.onnx
 from monte_carlo_dropout import add_dropout_to_decoder
-
+import numpy as np
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
@@ -84,9 +84,9 @@ def create_unet_multi_channels(dropout_rate=0.3):
 
 
 def visualize_losses(train_losses, val_losses):
-    
+    val_losses = np.array(val_losses).clip(max=max(train_losses))
     plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Val Loss')
+    plt.plot(val_losses, label='Val Loss (clipped)')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
@@ -183,7 +183,7 @@ def train_unet(config, save_model=False):
 
     if save_model:
         model_dir = Path(config['root_dir']) / config['model_dir']
-        dummy_shape = (5, 8, 512, 360)
+        dummy_shape = (3, 8, 512, PATCH_WIDTH)
         save_model_locally(model=model, 
                         model_dir=model_dir,
                         epoch_num=epoch_num, 
