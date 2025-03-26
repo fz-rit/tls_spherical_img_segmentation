@@ -6,8 +6,6 @@ from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 import torch.onnx
-from monte_carlo_dropout import add_dropout_to_decoder
-
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
@@ -21,7 +19,6 @@ class JointLoss(nn.Module):
         loss1 = self.first_loss(y_pred, y_true)
         loss2 = self.second_loss(y_pred, y_true)
         return self.first_weight * loss1 + self.second_weight * loss2
-
 
 def expand_first_conv_to_multi_channels(model):
     """
@@ -63,9 +60,7 @@ def expand_first_conv_to_multi_channels(model):
     model.encoder.conv1 = new_conv1
 
 
-
-
-def create_unet_multi_channels(dropout_rate=0.3):
+def create_unet_multi_channels():
     # 1) Load a 3-channel model with pretrained resnet34
     model_unet = smp.Unet(
         encoder_name="resnet34",
@@ -76,9 +71,6 @@ def create_unet_multi_channels(dropout_rate=0.3):
 
     # 2) Expand the first conv to 6 channels, partially preserving pretrained weights
     expand_first_conv_to_multi_channels(model_unet)
-
-    # 3) Add dropout layers to decoder
-    add_dropout_to_decoder(model_unet, p=dropout_rate)
 
     return model_unet
 
@@ -141,13 +133,6 @@ def train_unet(config, save_model=False):
     for epoch in range(epoch_num):
         model.train()
         train_loss = 0
-        # # See what 'decoder.blocks' is
-        # print(model.decoder)
-        # print(model.decoder.blocks)  # This is a ModuleList of DecoderBlock modules
-
-        # # Check one block
-        # print(model.decoder.blocks[0])
-        # break
         for imgs, masks in train_loader:
             imgs = imgs.to(device)
             masks = masks.to(device)
@@ -183,7 +168,7 @@ def train_unet(config, save_model=False):
 
     if save_model:
         model_dir = Path(config['root_dir']) / config['model_dir']
-        dummy_shape = (5, 8, 512, 360)
+        dummy_shape = (5, 8, 512, 1440)
         save_model_locally(model=model, 
                         model_dir=model_dir,
                         epoch_num=epoch_num, 

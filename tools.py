@@ -41,7 +41,7 @@ def checkout_class_freq(config):
 # Class 3-Bark: 21.54% of pixels
 # Class 4-Soil: 16.14% of pixels
 
-def drop_zero_in_cm(cm: np.ndarray) -> np.ndarray:
+def drop_zero_in_cm(cm: np.ndarray, verbose=False) -> np.ndarray:
     """
     Drop rank i if it is all zeros.
 
@@ -55,13 +55,15 @@ def drop_zero_in_cm(cm: np.ndarray) -> np.ndarray:
         row = cm[idx]
         col = cm[:, idx]
         if not np.any(col) or not np.any(row):
-            print("⚠️Warning: Dropping rank", idx, "from confusion matrix because it is all zeros.")
-            print("Before dropping:")
-            print(cm)
+            if verbose:
+                print("⚠️Warning: Dropping rank", idx, "from confusion matrix because it is all zeros.")
+                print("Before dropping:")
+                print(cm)
             cm = np.delete(cm, idx, axis=0)
             cm = np.delete(cm, idx, axis=1)
-            print("After dropping:")
-            print(cm)
+            if verbose:
+                print("After dropping:")
+                print(cm)
     return cm
 
 def calc_metrics(true_flat: np.ndarray, 

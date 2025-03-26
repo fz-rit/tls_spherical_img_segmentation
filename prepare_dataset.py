@@ -26,12 +26,41 @@ def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> 
     
     # Load the image cube (8-channel data)
     image_cube = np.load(image_cube_path, allow_pickle=True)
+    print(f"Loaded image cube from {image_cube_path}. Shape: {image_cube.shape}")
+
+    # # Resize the input image to be divisible by 32: (540, 1440) -> (512, 1536)
+    # image_cube = resize_image_and_mask(image_cube, None, (512, 1536))
     
     # Load the metadata from .json file
     with open(metadata_path, 'r') as file:
         metadata = json.load(file)
 
     return image_cube, metadata
+
+# def resize_image_and_mask(image, new_size):
+#     """
+#     Resize the image and mask to the new size.
+
+#     Parameters:
+#     - image: The image to resize.
+#     - mask: The mask to resize.
+#     - new_size: The new size to resize to.
+
+#     Returns:
+#     - The resized image and mask.
+#     """
+#     # Resize the image
+#     image = Image.fromarray(image)
+#     image = image.resize(new_size, Image.BILINEAR)
+#     image = np.array(image)
+
+#     # Resize the mask
+#     if mask is not None:
+#         mask = Image.fromarray(mask)
+#         mask = mask.resize(new_size, Image.NEAREST)
+#         mask = np.array(mask)
+
+#     return image, mask
 
 
 class SegmentationPatchDataset(Dataset):

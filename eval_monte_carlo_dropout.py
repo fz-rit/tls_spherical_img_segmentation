@@ -1,15 +1,13 @@
 import torch
 import matplotlib.pyplot as plt
-from prepare_dataset import load_data, load_image_cube_and_metadata
-from training import train_unet
+from prepare_dataset import load_data
+from training import train_unet, create_unet_multi_channels
 from tools import calc_metrics, custom_cmap
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
-from training import create_unet_multi_channels
-from pprint import pprint
-
+from monte_carlo_dropout import MonteCarloDropoutUncertainty
 
 def load_model(config: dict, device: str) -> smp.Unet:
     """
@@ -26,7 +24,7 @@ def load_model(config: dict, device: str) -> smp.Unet:
     # Load the model if there is a saved model, otherwise train a new model
     if model_dir.exists() and any(model_dir.glob('*.pth')):
         model = create_unet_multi_channels()
-        model_path = next(model_dir.glob('model_epoch*.pth'))
+        model_path = next(model_dir.glob('model_epoch200.pth'))
         model.load_state_dict(torch.load(model_path, weights_only=True))
         print(f"======Loaded model from disk: {model_path}.======")
     else:
@@ -96,13 +94,14 @@ def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = f"outputs/output_{timestamp}.png" if output_path is None else output_path
     fig.savefig(output_path)
-    print(f"Saved {output_path}")
+    print(f"㊗️Segmentation map saved to {output_path}")
 
 
-def evaluate(imgs, true_masks, model, 
+def evaluate(imgs, true_masks, config, 
              device:str = 'cuda', 
              output_path_1: Path = None, 
-             output_path_2: Path = None):
+             output_path_2: Path = None,
+             output_path_3: Path = None):
     """
     Evaluate the model on the test set.
 
@@ -110,20 +109,31 @@ def evaluate(imgs, true_masks, model,
         config (dict): Configuration dictionary.
         device (str): Device to run the evaluation on.
     """
+    model = load_model(config, device)
+
     imgs = imgs.to(device)                  # (N, C, H, W)
     true_masks = true_masks.to(device)      # (N, H, W)
+
+    print("🔮Evaluating the model...")
+    print(f"imgs.shape: {imgs.shape}, true_masks.shape: {true_masks.shape}")
+
+    # ---------Evaluate model in Monte Carlo Dropout mode and estimate uncertainty.------
+    mcdu = MonteCarloDropoutUncertainty(model, imgs)
+    mcdu.execute(mc_iterations=20, 
+                mutual_information=True, 
+                output_path=output_path_3)
+
+    # -----Evaluate model in normal mode.--------------
+    model.eval()
     with torch.no_grad():
         preds = model(imgs)                 # (N, C, H, W)
-        # Convert logits to predicted class indices
         pred_masks = torch.argmax(preds, dim=1)  # (N, H, W)
 
-    # Move data back to CPU for visualization
     imgs = imgs.cpu()
     true_masks = true_masks.cpu()
     pred_masks = pred_masks.cpu()
     
-    visualize_eval_output(imgs, true_masks, pred_masks, output_path_1) # Visualize the outputs by patch.
-
+    # visualize_eval_output(imgs, true_masks, pred_masks, output_path_1) # Visualize the outputs by patch.
 
     # Images: (N, 3, H, W) -> concatenate along width
     combined_img = torch.cat([img for img in imgs], dim=2)  # shape: (3, H, W * N)
@@ -136,6 +146,8 @@ def evaluate(imgs, true_masks, model,
                           [combined_true_mask], 
                           [combined_pred_mask],
                           output_path_2) # Visualize the outputs by image.
+    
+    
 
 def main():
     config_file = 'params/paths_zmachine.json'
@@ -143,14 +155,7 @@ def main():
     with open(config_file, 'r') as f:
         config = json.load(f)
 
-
-    # Load test image and mask from test_loader
-        _, _, test_loader = load_data(config)
-    model = load_model(config, device)
-    model.eval()
-
-    # Get one batch from the validation loader
-    # imgs, true_masks = next(iter(test_loader))
+    _, _, test_loader = load_data(config)
     desired_index = 1 
     imgs, true_masks = list(test_loader)[desired_index]
 
@@ -158,8 +163,9 @@ def main():
     key_str = str(test_loader.dataset.image_file_paths[0].stem).split('_')[1][-4:]
     output_path_1 = Path(config['root_dir']) / 'outputs' / f'combined_output_{key_str}_{timestamp}_split.png'
     output_path_2 = Path(config['root_dir']) / 'outputs' / f'combined_output_{key_str}_{timestamp}.png'
+    output_path_3 = Path(config['root_dir']) / 'outputs' / f'uncertainty_map_{key_str}_{timestamp}.png'
 
-    evaluate(imgs, true_masks, model, device, output_path_1, output_path_2)
+    evaluate(imgs, true_masks, config, device, output_path_1, output_path_2, output_path_3)  
 
 if __name__ == '__main__':
     main()
