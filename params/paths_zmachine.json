@@ -9,5 +9,5 @@
     "model_dir": "models",
     "epoch_num": 220,
     "model_file": "model_epoch_220.pth",
-    "test_img_idx": 1
+    "test_img_idx": 6
 }

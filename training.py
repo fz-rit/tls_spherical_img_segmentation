@@ -29,8 +29,8 @@ def expand_first_conv_to_multi_channels(model):
     This function:
       1. Reads the existing pretrained conv1 (shape [64, 3, 7, 7])
       2. Creates a new conv1 (shape [64, 6, 7, 7])
-      3. Copies the first 3 channel weights
-      4. Randomly initializes channels 4-6
+      3. Copies weights of channels 0, 2, 4 to the new conv1
+      4. Randomly initializes channels 1, 3, 5, 6, 7
       5. Assigns the new conv1 back
     """
 
