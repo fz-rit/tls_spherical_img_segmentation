@@ -14,6 +14,7 @@ from pprint import pprint
 
 PATCH_PER_IMAGE = 6
 PATCH_WIDTH = 256
+NUM_CLASSES = 6
 
 def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
     """

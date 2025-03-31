@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, resize_image_or_mask
-from training import train_unet, create_unet_multi_channels
+from backup.training import train_unet, create_unet_multi_channels
 from tools import calc_metrics, custom_cmap, get_pil_palette
 import json
 from pathlib import Path
@@ -80,13 +80,13 @@ def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None
         true_flat = true_mask.flatten()
         pred_flat = pred_mask.flatten()
         
-        cm, OverallAccu, mAccu, mIoU, FWIoU, dice_coefficient = calc_metrics(true_flat, pred_flat, N_CLASSES)
+        metric_dict = calc_metrics(true_flat, pred_flat, N_CLASSES)
         
-        
+        oAccu, mAccu, mIoU, FWIoU, dice_coefficient = metric_dict['oAccu'], metric_dict['mAccu'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
         if num_samples == 1:
             axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
             pred_title = ' '.join(['Predicted Mask:',
-                        f'oAccu: {OverallAccu:.4f};',
+                        f'oAccu: {oAccu:.4f};',
                         f'mAccu: {mAccu:.4f};',
                         f'mIoU: {mIoU:.4f};',
                         f'FWIoU: {FWIoU:.4f};',

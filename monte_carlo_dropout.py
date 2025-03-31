@@ -6,6 +6,7 @@ import math
 from PIL import Image
 import torch.nn.functional as F
 from prepare_dataset import resize_image_or_mask
+from segmentation_models_pytorch.decoders.fpn.decoder import FPNDecoder
 
 
 class DecoderBlockWithDropout(nn.Module):
@@ -16,13 +17,56 @@ class DecoderBlockWithDropout(nn.Module):
 
     def forward(self, x, skip=None):
         x = self.block(x, skip)
+    # def forward(self, x):
+    #     x = self.block(x)
+        x = self.dropout(x)
+        return x
+    
+
+class SegBlockWithDropout(nn.Module): # For FPNDecoder
+    def __init__(self, seg_block: nn.Module, dropout_p: float):
+        super().__init__()
+        self.seg_block = seg_block
+        self.dropout = nn.Dropout2d(p=dropout_p)
+
+    def forward(self, x):
+        x = self.seg_block(x)
         x = self.dropout(x)
         return x
 
+
 def add_dropout_to_decoder(model, p=0.3):
-    for i in range(len(model.decoder.blocks)):
-        block = model.decoder.blocks[i]
-        model.decoder.blocks[i] = DecoderBlockWithDropout(block, dropout_p=p)
+    """
+    Wrap decoder blocks with dropout. Supports UNet (ModuleList)
+    and UNet++ (nested ModuleDict of lists).
+    """
+    decoder = model.decoder
+
+    # Case 1: UNet++ — decoder.blocks is a ModuleDict of lists
+    if hasattr(decoder, "blocks") and isinstance(decoder.blocks, nn.ModuleDict):
+        for key in decoder.blocks:
+            decoder.blocks[key] = DecoderBlockWithDropout(decoder.blocks[key], dropout_p=p)
+
+
+    # Case 2: UNet — decoder.blocks is a ModuleList
+    elif hasattr(decoder, "blocks") and isinstance(decoder.blocks, nn.ModuleList):
+        for i in range(len(decoder.blocks)):
+            decoder.blocks[i] = DecoderBlockWithDropout(decoder.blocks[i], dropout_p=p)
+
+
+    # Case 3: FPN - decoder.blocks is an instance of FPNDecoder
+    # Note: FPNDecoder also has a dropout layer, but we can add more dropout
+    # to the seg_blocks if needed.
+    # ref: https://github.com/qubvel-org/segmentation_models.pytorch/blob/main/segmentation_models_pytorch/decoders/fpn/decoder.py
+    elif isinstance(decoder, FPNDecoder):
+        for i in range(len(decoder.seg_blocks)):
+            block = decoder.seg_blocks[i]
+            decoder.seg_blocks[i] = SegBlockWithDropout(block, dropout_p=p)
+        # decoder.dropout = nn.Dropout2d(p=p)
+
+    else:
+        raise TypeError(f"Unknown decoder structure: {type(decoder)}")
+
 
 
 class MonteCarloDropoutUncertainty(nn.Module):

@@ -7,7 +7,10 @@
     "mask_file_pattern": "*_mask.png",
     "train_val_test_split_file": "train_val_test_split.json",
     "model_dir": "models",
-    "epoch_num": 220,
-    "model_file": "model_epoch_220.pth",
+    "model_name": "deeplabv3plus",
+    "encoder_name": "resnet34",
+    "epoch_num": 120,
+    "model_save_interval": 30,
+    "model_file": "model_epoch_064_20250330_201435.pth",
     "test_img_idx": 6
 }

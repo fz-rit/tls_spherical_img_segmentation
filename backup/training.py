@@ -1,11 +1,13 @@
 import segmentation_models_pytorch as smp
 import torch
-from prepare_dataset import load_data
+from prepare_dataset import load_data, PATCH_WIDTH
 import torch.nn as nn
 from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 import torch.onnx
+from monte_carlo_dropout import add_dropout_to_decoder
+import numpy as np
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
@@ -20,14 +22,15 @@ class JointLoss(nn.Module):
         loss2 = self.second_loss(y_pred, y_true)
         return self.first_weight * loss1 + self.second_weight * loss2
 
+
 def expand_first_conv_to_multi_channels(model):
     """
     model: The SMP model after loading with 3-channel pretrained weights.
     This function:
       1. Reads the existing pretrained conv1 (shape [64, 3, 7, 7])
       2. Creates a new conv1 (shape [64, 6, 7, 7])
-      3. Copies the first 3 channel weights
-      4. Randomly initializes channels 4-6
+      3. Copies weights of channels 0, 2, 4 to the new conv1
+      4. Randomly initializes channels 1, 3, 5, 6, 7
       5. Assigns the new conv1 back
     """
 
@@ -48,7 +51,6 @@ def expand_first_conv_to_multi_channels(model):
     
     with torch.no_grad():
         # 3. Copy pretrained weights for pretrain channels 
-        # new_conv1.weight[:, :3, :, :] = pretrained_weights
         pretrain_channels = [4, 2, 0] # Roughness, Intensity, Range
         new_conv1.weight[:, pretrain_channels, :, :] = pretrained_weights
 
@@ -60,8 +62,9 @@ def expand_first_conv_to_multi_channels(model):
     model.encoder.conv1 = new_conv1
 
 
-def create_unet_multi_channels():
-    # 1) Load a 3-channel model with pretrained resnet34
+
+
+def create_unet_multi_channels(dropout_rate=0.3):
     model_unet = smp.Unet(
         encoder_name="resnet34",
         encoder_weights="imagenet",
@@ -69,16 +72,16 @@ def create_unet_multi_channels():
         classes=6
     )
 
-    # 2) Expand the first conv to 6 channels, partially preserving pretrained weights
     expand_first_conv_to_multi_channels(model_unet)
+    add_dropout_to_decoder(model_unet, p=dropout_rate)
 
     return model_unet
 
 
 def visualize_losses(train_losses, val_losses):
-    
+    val_losses = np.array(val_losses).clip(max=max(train_losses))
     plt.plot(train_losses, label='Train Loss')
-    plt.plot(val_losses, label='Val Loss')
+    plt.plot(val_losses, label='Val Loss (clipped)')
     plt.xlabel('Epoch')
     plt.ylabel('Loss')
     plt.legend()
@@ -89,16 +92,14 @@ def save_model_locally(model, model_dir, epoch_num, dummy_shape, device):
     print(f"----Created directory {model_dir}----")
 
     # Save .pth (PyTorch state dict)
-    save_model_path = model_dir / f'model_epoch{epoch_num:03d}.pth'
+    save_model_path = model_dir / f'model_epoch_{epoch_num:03d}.pth'
     torch.save(model.state_dict(), save_model_path)
     print(f"----Model saved at {save_model_path}----")
 
-    # Save as ONNX
-    onnx_model_path = model_dir / f'model_epoch{epoch_num:03d}.onnx'
+    onnx_model_path = model_dir / f'model_epoch_{epoch_num:03d}.onnx'
 
     # Create a dummy input with the same shape as your input
     dummy_input = torch.randn(dummy_shape).to(device)  # replace H, W as needed
-
     torch.onnx.export(
         model, 
         dummy_input, 
@@ -110,9 +111,21 @@ def save_model_locally(model, model_dir, epoch_num, dummy_shape, device):
     )
     print(f"----ONNX model saved at {onnx_model_path}----")
 
-def train_unet(config, save_model=False):
+def train_unet(config, pretrained_model_source=False, save_model=False):
     train_loader, val_loader, _ = load_data(config)
     model = create_unet_multi_channels()
+    pretrained_epoch = 0
+    if pretrained_model_source:
+        model_dir = Path(config['root_dir']) / config['model_dir']
+        model_file = model_dir / config['model_file']
+        pretrained_epoch = int(model_file.stem.split('_')[-1])
+        if model_file.exists():
+            model.load_state_dict(torch.load(model_file, weights_only=True))
+            print(f"======🌞Loaded model from disk: {model_file.stem}.======")
+
+        else:
+            raise FileNotFoundError(f"Pretrained model not found at {model_file}")
+        
 
     # Move model to GPU if available
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -130,7 +143,7 @@ def train_unet(config, save_model=False):
     val_losses = []
 
     
-    for epoch in range(epoch_num):
+    for epoch in range(pretrained_epoch, epoch_num):
         model.train()
         train_loss = 0
         for imgs, masks in train_loader:
@@ -168,7 +181,7 @@ def train_unet(config, save_model=False):
 
     if save_model:
         model_dir = Path(config['root_dir']) / config['model_dir']
-        dummy_shape = (5, 8, 512, 1440)
+        dummy_shape = (3, 8, 512, PATCH_WIDTH)
         save_model_locally(model=model, 
                         model_dir=model_dir,
                         epoch_num=epoch_num, 
@@ -184,7 +197,4 @@ if __name__ == "__main__":
     config_file = 'params/paths_zmachine.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
-    model, train_losses, val_losses = train_unet(config, save_model=True)
-    
-
-
+    model, train_losses, val_losses = train_unet(config, pretrained_model_source=True, save_model=True)
