@@ -1,3 +1,4 @@
+import copy
 import segmentation_models_pytorch as smp
 import torch
 from prepare_dataset import load_data, PATCH_WIDTH, NUM_CLASSES
@@ -9,7 +10,7 @@ from monte_carlo_dropout import add_dropout_to_decoder
 import numpy as np
 from tools import calc_oAccu_mIoU, visualize_losses, visualize_metrics, save_model_locally, EarlyStopping
 import time
-
+from pprint import pprint
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
@@ -87,11 +88,11 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', dropout_
 
 
     encoder_name_list = [
-        'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152',
+        'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'resnext50_32x4d', 'resnext101_32x4d', 'resnext101_32x8d',
         'mobilenet_v2', 'mobilenet_v3_large', 'mobilenet_v3_small',
         'efficientnet-b0', 'efficientnet-b1', 'efficientnet-b2',
         'efficientnet-b3', 'efficientnet-b4', 'efficientnet-b5',
-        'efficientnet-b6', 'efficientnet-b7'
+        'efficientnet-b6', 'efficientnet-b7', 'mit_b2', 'mit_b3', 'timm-efficientnet-b5'
     ]
     if encoder_name not in encoder_name_list:
         raise ValueError(f"Unknown encoder name: {encoder_name}. Supported encoders are: {encoder_name_list}")
@@ -110,13 +111,20 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', dropout_
 
 
 def train_model(config, pretrained_model_source=False, save_model=False):
+    # -------------------------------------------------------------------------
+    # 1. Setup
+    # -------------------------------------------------------------------------
     train_loader, val_loader, _ = load_data(config)
-    model = build_model_for_multi_channels(model_name=config['model_name'],
-                                           encoder_name=config['encoder_name'])
+    model = build_model_for_multi_channels(
+        model_name=config['model_name'],
+        encoder_name=config['encoder_name']
+    )
     pretrained_epoch = 0
+    stop_early = config['stop_early']
 
+    # If loading from a pretrained model
     if pretrained_model_source:
-        model_dir = Path(config['root_dir']) / config['model_dir']
+        model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
         model_file = model_dir / config['model_file']
         pretrained_epoch = int(model_file.stem.split('_')[-1])
         if model_file.exists():
@@ -124,7 +132,7 @@ def train_model(config, pretrained_model_source=False, save_model=False):
             print(f"======🌞Loaded model from disk: {model_file.stem}.======")
         else:
             raise FileNotFoundError(f"Pretrained model not found at {model_file}")
-        
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = model.to(device)
 
@@ -136,16 +144,29 @@ def train_model(config, pretrained_model_source=False, save_model=False):
         second_weight=0.5
     )
 
-    model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
     dummy_shape = (3, 8, 512, PATCH_WIDTH)
     epoch_num = config['epoch_num']
-    train_losses = []
-    val_losses = []
+
+    # Tracking containers
+    train_losses, val_losses = [], []
     train_oAccus, val_oAccus = [], []
     train_mIoUs, val_mIoUs = [], []
-    early_stopper = EarlyStopping(patience=10, mode='loss')
 
+    early_stopper = EarlyStopping(patience=config['early_stop_patience'], mode='loss')
+
+    # -------------------------------------------------------------------------
+    # 2. Keep track of the best model
+    # -------------------------------------------------------------------------
+    best_val_loss = float('inf')
+    best_model_state = None  # For storing state_dict of the best model
+
+    # -------------------------------------------------------------------------
+    # 3. Training loop
+    # -------------------------------------------------------------------------
     for epoch in range(pretrained_epoch, epoch_num):
+        # ---------------------
+        #   Training phase
+        # ---------------------
         model.train()
         train_loss = 0
         y_true_train, y_pred_train = [], []
@@ -162,7 +183,6 @@ def train_model(config, pretrained_model_source=False, save_model=False):
             loss.backward()
             optimizer.step()
 
-            # Collect predictions and labels
             preds_labels = torch.argmax(preds, dim=1)
             y_true_train.append(masks.cpu().numpy().ravel())
             y_pred_train.append(preds_labels.cpu().numpy().ravel())
@@ -177,7 +197,9 @@ def train_model(config, pretrained_model_source=False, save_model=False):
         train_oAccus.append(train_oAccu)
         train_mIoUs.append(train_mIoU)
 
-        # Validation
+        # ---------------------
+        #   Validation phase
+        # ---------------------
         model.eval()
         val_loss = 0
         y_true_val, y_pred_val = [], []
@@ -205,33 +227,73 @@ def train_model(config, pretrained_model_source=False, save_model=False):
         val_oAccus.append(val_oAccu)
         val_mIoUs.append(val_mIoU)
 
+        # ---------------------
+        #   Logging
+        # ---------------------
         print(f"Epoch {epoch + 1}/{epoch_num} | "
               f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
               f"Train oAcc: {train_oAccu:.4f}, mIoU: {train_mIoU:.4f} | "
               f"Val oAcc: {val_oAccu:.4f}, mIoU: {val_mIoU:.4f}")
-        
+
+        # ---------------------------------------------------------------------
+        #  Update best model if the current validation loss is better
+        # ---------------------------------------------------------------------
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            best_model_state = copy.deepcopy(model.state_dict())
+
+        # ---------------------------------------------------------------------
+        #  Early stopping
+        # ---------------------------------------------------------------------
         early_stopper(val_loss)
         should_save_by_interval = (epoch + 1) % config['model_save_interval'] == 0
-        should_save_due_to_early_stop = early_stopper.early_stop
+        should_save_due_to_early_stop = early_stopper.early_stop and stop_early
 
-        # Save model if conditions are met
+        # ---------------------------------------------------------------------
+        #  Save at interval or if triggered by early stopping
+        # ---------------------------------------------------------------------
         if save_model and (should_save_by_interval or should_save_due_to_early_stop):
-            save_model_locally(model=model, 
-                        model_dir=model_dir,
-                        epoch=epoch+1, 
-                        dummy_shape=dummy_shape,
-                        )
-            
+            model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
+            timestr = time.strftime("%Y%m%d_%H%M%S")
+            model_name_prefix = f"{config['model_name']}_{config['encoder_name']}_epoch_{epoch+1:03d}_{timestr}"
+            save_model_locally(
+                model=model,
+                model_dir=model_dir,
+                model_name_prefix=model_name_prefix,
+                dummy_shape=dummy_shape
+            )
+
+        # If early stopping says to stop, break now
         if should_save_due_to_early_stop:
             print("⏹ Early stopping triggered!")
             break
 
-    # Save loss figure
+    # -------------------------------------------------------------------------
+    # 4. After the loop: Optionally save the best model
+    # -------------------------------------------------------------------------
+    if save_model and best_model_state is not None:
+        # Optionally reload the best state into the model
+        model.load_state_dict(best_model_state)
+
+        # Save it under a 'best' prefix
+        model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
+        timestr = time.strftime("%Y%m%d_%H%M%S")
+        model_name_prefix = f"{config['model_name']}_{config['encoder_name']}_best_{timestr}"
+        save_model_locally(
+            model=model,
+            model_dir=model_dir,
+            model_name_prefix=model_name_prefix,
+            dummy_shape=dummy_shape
+        )
+        print(f"✅ Best model saved with val_loss = {best_val_loss:.4f}")
+
+    # -------------------------------------------------------------------------
+    # 5. Save plots and return
+    # -------------------------------------------------------------------------
     timestr = time.strftime("%Y%m%d_%H%M%S")
     plt_save_path = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'losses_{timestr}.png'
     visualize_losses(train_losses, val_losses, plt_save_path)
 
-    # Save metrics figure
     metrics_save_path = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'metrics_{timestr}.png'
     visualize_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, metrics_save_path)
 
@@ -249,8 +311,10 @@ def train_model(config, pretrained_model_source=False, save_model=False):
 
 
 
+
 if __name__ == "__main__":
     config_file = 'params/paths_zmachine.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
+    pprint(config)
     out_dict = train_model(config, pretrained_model_source=False, save_model=True)

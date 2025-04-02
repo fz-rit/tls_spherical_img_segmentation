@@ -61,65 +61,62 @@ def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
     print(f"🎨Color mask saved to {color_path}")
 
 
-def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None):
+def visualize_eval_output(img, true_mask, pred_mask, gt_available=True, output_path: Path = None):
     """"
     Visualize the image and masks.
     """
     N_CLASSES = 6
-    num_samples = len(imgs)  # Let's visualize up to 5 samples
-    fig, axs = plt.subplots(3, num_samples, figsize=(10, 6*num_samples))
+    fig, axs = plt.subplots(3, 1, figsize=(10, 6))
 
-    for i in range(num_samples):
-        # Original image: convert from tensor [C,H,W] to [H,W,C] and un-normalize if needed
-        img = imgs[i].permute(1, 2, 0).numpy()  
-        true_mask = true_masks[i].numpy()
-        pred_mask = pred_masks[i].numpy()
+    # Original image: convert from tensor [C,H,W] to [H,W,C] and un-normalize if needed
+    img = img.permute(1, 2, 0).numpy()  
+    true_mask = true_mask.numpy()
+    pred_mask = pred_mask.numpy()
 
-        img = resize_image_or_mask(img, (540, 1440)) 
-        true_mask = resize_image_or_mask(true_mask, (540, 1440))
-        pred_mask = resize_image_or_mask(pred_mask, (540, 1440))
+    img = resize_image_or_mask(img, (540, 1440)) 
+    true_mask = resize_image_or_mask(true_mask, (540, 1440))
+    pred_mask = resize_image_or_mask(pred_mask, (540, 1440))
 
-        # Compute metrics between true_mask and pred_mask
-        true_flat = true_mask.flatten()
-        pred_flat = pred_mask.flatten()
-        # print("👀Unique values in true mask:", np.unique(true_flat))
-        # print("👀Unique values in pred mask:", np.unique(pred_flat))
-        # return 
+    # Compute metrics between true_mask and pred_mask
+    true_flat = true_mask.flatten()
+    pred_flat = pred_mask.flatten()
+    axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
+
+    if gt_available:
         metric_dict = calc_metrics(true_flat, pred_flat, N_CLASSES)
-        
         oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
-        if num_samples == 1:
-            axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
-            pred_title = ' '.join(['Predicted Mask:',
-                        f'oAcc: {oAcc:.4f};',
-                        f'mAcc: {mAcc:.4f};',
-                        f'mIoU: {mIoU:.4f};',
-                        f'FWIoU: {FWIoU:.4f};',
-                        f'dice_coeff: {dice_coefficient:.4f}'])
-        else:
-            pred_title = f'Predicted Mask'
-            axs_img, axs_true, axs_pred = axs[0, i], axs[1, i], axs[2, i]
+        
+        pred_title = ' '.join(['Predicted Mask:',
+                    f'oAcc: {oAcc:.4f};',
+                    f'mAcc: {mAcc:.4f};',
+                    f'mIoU: {mIoU:.4f};',
+                    f'FWIoU: {FWIoU:.4f};',
+                    f'dice_coeff: {dice_coefficient:.4f}'])
+        true_title = 'Ground Truth Mask' 
+    else:
+        pred_title = 'Predicted Mask (No GT)'
+        true_title = 'Ground Truth Mask (Not Available)'
 
-        display_channels = [4, 0, 2] # Roughness, Intensity, Range
-        axs_img.imshow(img[:, :, display_channels])
-        axs_img.set_title('Pseudo color stacked from Roughness-Intensity-Range')
-        axs_img.axis('off')
+    display_channels = [4, 0, 2] # Roughness, Intensity, Range
+    axs_img.imshow(img[:, :, display_channels])
+    axs_img.set_title('Pseudo color stacked from Roughness-Intensity-Range')
+    axs_img.axis('off')
 
-        # For masks, use a discrete colormap to distinguish classes
-        axs_true.imshow(true_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
-        axs_true.set_title('Ground Truth Mask')
-        axs_true.axis('off')
+    # For masks, use a discrete colormap to distinguish classes
+    axs_true.imshow(true_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
+    axs_true.set_title(true_title)
+    axs_true.axis('off')
 
-        axs_pred.imshow(pred_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
-        axs_pred.set_title(pred_title)
-        axs_pred.axis('off')
+    axs_pred.imshow(pred_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
+    axs_pred.set_title(pred_title)
+    axs_pred.axis('off')
 
     plt.tight_layout()
     plt.show()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
     fig.savefig(output_path)
-    print(f"㊗️Segmentation map saved to {output_path}")
+    print(f"😌Segmentation map saved to {output_path}")
 
     # Save the pred_mask in rbg image.
     pred_mask_mono_path = output_path.parent / f"pred_mask_mono_{timestamp}.png"
@@ -128,8 +125,7 @@ def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None
 
 
 
-def evaluate(imgs, true_masks, config, 
-             device:str = 'cuda', 
+def evaluate(imgs, true_masks, config, gt_available,
              output_path_1: Path = None,
              output_path_2: Path = None):
     """
@@ -139,8 +135,9 @@ def evaluate(imgs, true_masks, config,
         config (dict): Configuration dictionary.
         device (str): Device to run the evaluation on.
     """
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     model = load_model(config, device)
-
+    
     imgs = imgs.to(device)                  # (N, C, H, W)
     true_masks = true_masks.to(device)      # (N, H, W)
 
@@ -171,32 +168,38 @@ def evaluate(imgs, true_masks, config,
     # Masks: (N, H, W) -> concatenate along width
     combined_true_mask = torch.cat([mask for mask in true_masks], dim=1)  # shape: (H, W * N)
     combined_pred_mask = torch.cat([mask for mask in pred_masks], dim=1)  # shape: (H, W * N)
-    
-    visualize_eval_output([combined_img], 
-                          [combined_true_mask], 
-                          [combined_pred_mask],
-                          output_path_1) # Visualize the outputs by image.
+    combined_true_mask = torch.zeros_like(combined_pred_mask) if not gt_available else combined_true_mask
+    visualize_eval_output(combined_img, 
+                          combined_true_mask, 
+                          combined_pred_mask,
+                          output_path = output_path_1,
+                          gt_available = gt_available) 
     
     
 
 def main():
     config_file = 'params/paths_zmachine.json'
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     with open(config_file, 'r') as f:
         config = json.load(f)
 
     _, _, test_loader = load_data(config)
-    test_img_idx = config['test_img_idx'] 
-    imgs, true_masks = list(test_loader)[test_img_idx]
+    test_img_idx_ls = config['test_img_idx_ls'] 
+    eval_gt_available_ls = config['eval_gt_available_ls']
+    assert len(test_img_idx_ls) == len(eval_gt_available_ls), "The lengths of test_img_idx_ls and eval_gt_available_ls must be the same."
+    for test_img_idx, eval_gt_available in zip(test_img_idx_ls, eval_gt_available_ls):
+        print(f"🔍Evaluating image {test_img_idx}...")
+        imgs, true_masks = list(test_loader)[test_img_idx]
+        assert imgs.shape[0] == true_masks.shape[0], f"{imgs.shape} vs {true_masks.shape}❗The number of images and masks should be the same."
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    key_str = str(test_loader.dataset.image_file_paths[test_img_idx].stem).split('_')[1][-4:] # the four numbers represent the test image dataset.
-    out_dir = Path(config['root_dir']) / 'outputs' / config['model_name'] / key_str
-    out_dir.mkdir(parents=True, exist_ok=True)
-    output_path_1 = out_dir / f'combined_output_{key_str}_{timestamp}.png'
-    output_path_2 = out_dir / f'uncertainty_map_{key_str}_{timestamp}.png'
+        # Prepare output paths.
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        key_str = str(test_loader.dataset.image_file_paths[test_img_idx].stem).split('_')[1][-4:] # the four numbers represent the test image dataset.
+        out_dir = Path(config['root_dir']) / 'outputs' / config['model_name'] / key_str
+        out_dir.mkdir(parents=True, exist_ok=True)
+        output_path_1 = out_dir / f'combined_output_{key_str}_{timestamp}.png'
+        output_path_2 = out_dir / f'uncertainty_map_{key_str}_{timestamp}.png'
 
-    evaluate(imgs, true_masks, config, device, output_path_1, output_path_2)  
+        evaluate(imgs, true_masks, config, eval_gt_available, output_path_1, output_path_2)  
 
 if __name__ == '__main__':
     main()

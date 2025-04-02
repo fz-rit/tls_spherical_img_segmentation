@@ -16,6 +16,7 @@ PATCH_PER_IMAGE = 6
 PATCH_WIDTH = 256
 NUM_CLASSES = 6
 
+
 def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
     """
     Loads an image cube and its metadata from saved .npy files.
@@ -267,11 +268,11 @@ def load_data(config):
     # ---- Define Albumentations transforms ----
     train_transform = A.Compose([
                                     ChannelShuffleGroups(groups=[[0, 1, 2, 3, 4], [5, 6, 7]], p=0.5),
-                                    A.Resize(height=512, width=512),
+                                    A.Resize(height=512, width=PATCH_WIDTH),
                                     A.HorizontalFlip(p=0.5),
-                                    A.VerticalFlip(p=0.5),
-                                    A.RandomRotate90(p=0.5),
-                                    A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=30, p=0.5),
+                                    # A.VerticalFlip(p=0.5),
+                                    # A.RandomRotate90(p=0.5),
+                                    A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=10, p=0.5),
                                     # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
                                     # A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
                                     #             std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
@@ -280,7 +281,7 @@ def load_data(config):
                                 additional_targets={'mask': 'mask'})
 
     val_transform = A.Compose([
-                                A.Resize(height=512, width=512),
+                                A.Resize(height=512, width=PATCH_WIDTH),
                                 # A.Normalize(
                                 #     mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0),
                                 #     std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)
@@ -304,7 +305,8 @@ def load_data(config):
             labels_map=labels_map
         )
 
-        dataloaders[split] = DataLoader(dataset, batch_size=PATCH_PER_IMAGE, shuffle=True if split == 'train' else False, num_workers=2)
+        bt_size = PATCH_PER_IMAGE if split == 'test' else config['train_batch_size']
+        dataloaders[split] = DataLoader(dataset, batch_size=bt_size, shuffle=True if split == 'train' else False, num_workers=2)
 
     train_loader = dataloaders['train']
     val_loader = dataloaders['val']

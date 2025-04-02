@@ -319,17 +319,15 @@ def visualize_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, plt_save
 
 
 
-def save_model_locally(model, model_dir, epoch, dummy_shape):
+def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):
     model_dir.mkdir(parents=True, exist_ok=True)
     print(f"----Created directory {model_dir}----")
 
-    timestr = time.strftime("%Y%m%d_%H%M%S")
-    # Save .pth (PyTorch state dict)
-    save_model_path = model_dir / f'model_epoch_{epoch:03d}_{timestr}.pth'
+    save_model_path = model_dir / f'{model_name_prefix}.pth'
     torch.save(model.state_dict(), save_model_path)
     print(f"----Model saved at {save_model_path}----")
 
-    onnx_model_path = model_dir / f'model_epoch_{epoch:03d}_{timestr}.onnx'
+    onnx_model_path = model_dir / f'{model_name_prefix}.onnx'
 
     # Create a dummy input with the same shape as your input
     dummy_input = torch.randn(dummy_shape).to('cuda')  # replace H, W as needed

@@ -7,10 +7,14 @@
     "mask_file_pattern": "*_mask.png",
     "train_val_test_split_file": "train_val_test_split.json",
     "model_dir": "models",
-    "model_name": "deeplabv3plus",
-    "encoder_name": "resnet34",
-    "epoch_num": 120,
-    "model_save_interval": 30,
-    "model_file": "model_epoch_064_20250330_201435.pth",
-    "test_img_idx": 6
+    "model_name": "unetpp",
+    "encoder_name": "resnext50_32x4d",
+    "train_batch_size": 6,
+    "epoch_num": 180,
+    "model_save_interval": 40,
+    "stop_early": true,
+    "early_stop_patience": 10,
+    "model_file": "unet_resnext50_32x4d_best_20250401_205725.pth",
+    "test_img_idx_ls": [0, 1, 2, 3, 4, 5, 6],
+    "eval_gt_available_ls": [false, false, true, true, false, false, false]
 }
