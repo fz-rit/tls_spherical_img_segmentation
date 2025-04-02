@@ -8,9 +8,10 @@ import json
 import torch.onnx
 from monte_carlo_dropout import add_dropout_to_decoder
 import numpy as np
-from tools import calc_oAccu_mIoU, visualize_losses, visualize_metrics, save_model_locally, EarlyStopping
+from tools import calc_oAccu_mIoU, visualize_losses, visualize_metrics, save_model_locally
 import time
 from pprint import pprint
+from earlystopping import EarlyStopping
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):

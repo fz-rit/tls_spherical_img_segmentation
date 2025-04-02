@@ -343,39 +343,39 @@ def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):
     print(f"----ONNX model saved at {onnx_model_path}----")
 
 
-class EarlyStopping:
-    def __init__(self, patience=5, min_delta=0, mode='loss'):
-        """
-        Early stops the training if validation loss doesn't improve after a given patience.
-        Parameters
-        ----------
-        patience : int
-            How long to wait after last time validation loss improved.
-        min_delta : float
-            Minimum change to qualify as an improvement.
-        mode : str
-            One of {'loss', 'accu'}. In loss mode, training will stop when the loss monitored has stopped decreasing;
-            in accu mode it will stop when the quantity monitored has stopped increasing.
-        """
-        assert mode in ['loss', 'accu'], "❗mode should be either 'loss' or 'accu'❗"
+# class EarlyStopping:
+#     def __init__(self, patience=5, min_delta=0, mode='loss'):
+#         """
+#         Early stops the training if validation loss doesn't improve after a given patience.
+#         Parameters
+#         ----------
+#         patience : int
+#             How long to wait after last time validation loss improved.
+#         min_delta : float
+#             Minimum change to qualify as an improvement.
+#         mode : str
+#             One of {'loss', 'accu'}. In loss mode, training will stop when the loss monitored has stopped decreasing;
+#             in accu mode it will stop when the quantity monitored has stopped increasing.
+#         """
+#         assert mode in ['loss', 'accu'], "❗mode should be either 'loss' or 'accu'❗"
 
-        self.patience = patience
-        self.min_delta = min_delta
-        self.counter = 0
-        self.best_score = None
-        self.early_stop = False
-        self.mode = mode
+#         self.patience = patience
+#         self.min_delta = min_delta
+#         self.counter = 0
+#         self.best_score = None
+#         self.early_stop = False
+#         self.mode = mode
 
-    def __call__(self, metric):
-        score = -metric if self.mode == 'loss' else metric
+#     def __call__(self, metric):
+#         score = -metric if self.mode == 'loss' else metric
 
-        if self.best_score is None:
-            self.best_score = score
-        elif score < self.best_score + self.min_delta:
-            self.counter += 1
-            if self.counter >= self.patience:
-                self.early_stop = True
-        else:
-            self.best_score = score
-            self.counter = 0
+#         if self.best_score is None:
+#             self.best_score = score
+#         elif score < self.best_score + self.min_delta:
+#             self.counter += 1
+#             if self.counter >= self.patience:
+#                 self.early_stop = True
+#         else:
+#             self.best_score = score
+#             self.counter = 0
 
