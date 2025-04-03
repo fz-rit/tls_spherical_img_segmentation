@@ -8,7 +8,9 @@ import json
 import torch.onnx
 from monte_carlo_dropout import add_dropout_to_decoder
 import numpy as np
-from tools import calc_oAccu_mIoU, visualize_losses, visualize_metrics, save_model_locally
+from metrics_tools import calc_oAccu_mIoU
+from visualize_tools import plot_training_validation_losses, plot_training_validation_metrics
+from tools import save_model_locally
 import time
 from pprint import pprint
 from earlystopping import EarlyStopping
@@ -293,10 +295,10 @@ def train_model(config, pretrained_model_source=False, save_model=False):
     # -------------------------------------------------------------------------
     timestr = time.strftime("%Y%m%d_%H%M%S")
     plt_save_path = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'losses_{timestr}.png'
-    visualize_losses(train_losses, val_losses, plt_save_path)
+    plot_training_validation_losses(train_losses, val_losses, plt_save_path)
 
     metrics_save_path = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'metrics_{timestr}.png'
-    visualize_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, metrics_save_path)
+    plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, metrics_save_path)
 
     out_dict = {
         'model': model,

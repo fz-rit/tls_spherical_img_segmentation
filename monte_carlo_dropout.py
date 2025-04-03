@@ -163,21 +163,18 @@ class MonteCarloDropoutUncertainty(nn.Module):
         fig.colorbar(unctt_map, ax=axs[0], orientation='horizontal', fraction=0.05, pad=0.05)
         fig.savefig(output_path)
         print(f"🌻Uncertainty map saved to {output_path}.")
-        plt.show()
+        # plt.show()
 
         # Save each image separately
         titles = [f'Binarized Uncertainty Map_Threshold_{t:.2f}' for t in self.thresholds]
         subplot_save_dir = output_path.parent / f'uncertainty_maps_{str(output_path.stem).split("_map_")[1]}'
         subplot_save_dir.mkdir(exist_ok=True)
-        # complement_patch = np.zeros((28, self.uncertainty_map.shape[1])) # Match the output resolution to (540, 1440)
-        # extended_uncertainty_map = np.vstack([self.uncertainty_map, complement_patch]) 
         unctt_map_img = Image.fromarray((self.uncertainty_map * 255).astype(np.uint8))
         output_path = subplot_save_dir / 'uncertainty_map.png'
         unctt_map_img.save(output_path)
         
         for i, binarized_map in enumerate(self.binarized_uncertainty_maps):
             output_path = subplot_save_dir / f'{titles[i]}.png'
-            # binarized_map = np.vstack([binarized_map, complement_patch])
             binarized_map_img = Image.fromarray((binarized_map * 255).astype(np.uint8))   
             binarized_map_img.save(output_path)
         print(f"🍀Individual maps saved to {subplot_save_dir}.")

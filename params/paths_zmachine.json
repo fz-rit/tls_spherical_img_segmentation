@@ -5,7 +5,7 @@
     "image_file_pattern": "*image_cube.npy",
     "image_meta_pattern": "*_metadata.json",
     "mask_file_pattern": "*_mask.png",
-    "train_val_test_split_file": "train_val_test_split_rnd2.json",
+    "train_val_test_split_file": "train_val_test_split_rnd3.json",
     "model_dir": "models",
     "model_name": "unetpp",
     "encoder_name": "resnext50_32x4d",
@@ -15,6 +15,6 @@
     "stop_early": true,
     "early_stop_patience": 15,
     "model_file": "unetpp_resnext50_32x4d_best_20250401_222603.pth",
-    "test_img_idx_ls": [0, 1, 2, 3, 4, 5],
-    "eval_gt_available_ls": [false, false, false, false, false, false]
+    "test_img_idx_ls": [0, 1, 2, 3],
+    "eval_gt_available_ls": [true, true, true, true]
 }
