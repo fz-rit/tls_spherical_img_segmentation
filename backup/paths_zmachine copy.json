@@ -1,0 +1,10 @@
+{
+    "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/palau_ALRSET1",
+    "image_dir": "images",
+    "mask_dir": "masks",
+    "image_file_pattern": "image_cube_*.npy",
+    "image_meta_pattern": "image_metadata_*.npy",
+    "mask_file_pattern": "image_mask_*.png",
+    "model_dir": "models",
+    "epoch_num": 180
+}

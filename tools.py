@@ -1,9 +1,16 @@
 from collections import Counter
 from prepare_dataset import load_data
 import json
-from sklearn.metrics import confusion_matrix
+# from sklearn.metrics import confusion_matrix
 import numpy as np
 from typing import Tuple
+from matplotlib.colors import ListedColormap
+import matplotlib.pyplot as plt
+import torch
+import time
+from pathlib import Path
+
+
 
 config_file = 'params/paths_zmachine.json'
 with open(config_file, 'r') as f:
@@ -40,48 +47,65 @@ def checkout_class_freq(config):
 # Class 3-Bark: 21.54% of pixels
 # Class 4-Soil: 16.14% of pixels
 
-def calc_metrics(true_flat: np.ndarray, 
-                 pred_flat: np.ndarray, 
-                 num_classes: int) -> Tuple[np.ndarray, float, float, float, float, float]:
-    """
-    Calculate evaluation metrics for semantic segmentation.
 
-    Args:
-    true_flat (numpy.ndarray): Flattened ground truth mask (1D array).
-    pred_flat (numpy.ndarray): Flattened predicted mask (1D array).
-    num_classes (int): Number of classes in the dataset.
 
-    Returns:
-    cm (numpy.ndarray): Confusion matrix.
-    pixel_accuracy (float): Pixel accuracy.
-    mPA (float): Mean pixel accuracy.
-    mIoU (float): Mean intersection over union.
-    FWIoU (float): Frequency weighted intersection over union.
-    dice_coefficient (float): Dice coefficient.
-    """
 
-    # Compute confusion matrix
-    cm = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+def custom_cmap():
+    color_list = [
+                    [0.0, 0.0, 0.0],           # index 0
+                    [0.502, 0.0, 0.502],       # index 1
+                    [0.647, 0.165, 0.165],     # index 2
+                    [0.0, 0.502, 0.0],         # index 3
+                    [1.0, 0.647, 0.0],         # index 4
+                    [1.0, 1.0, 0.0]            # index 5
+                ]
 
-    # Pixel Accuracy
-    pixel_accuracy = np.diag(cm).sum() / cm.sum()
 
-    # Mean Pixel Accuracy
-    class_accuracy = np.diag(cm) / cm.sum(axis=1)
-    mPA = np.nanmean(class_accuracy)
+    custom_cmap = ListedColormap(color_list)
+    return custom_cmap
 
-    # Intersection over Union (IoU) for each class
-    intersection = np.diag(cm)
-    union = cm.sum(axis=1) + cm.sum(axis=0) - np.diag(cm)
-    IoU = intersection / union
-    mIoU = np.nanmean(IoU)
 
-    # Frequency Weighted IoU
-    freq = cm.sum(axis=1) / cm.sum()
-    FWIoU = (freq * IoU).sum()
+def get_pil_palette():
+    color_list = [
+        [0.0, 0.0, 0.0],           # black
+        [0.502, 0.0, 0.502],       # purple
+        [0.647, 0.165, 0.165],     # brown
+        [0.0, 0.502, 0.0],         # green
+        [1.0, 0.647, 0.0],         # orange
+        [1.0, 1.0, 0.0]            # yellow
+    ]
 
-    # Dice Coefficient for each class
-    dice = 2 * intersection / (cm.sum(axis=1) + cm.sum(axis=0))
-    dice_coefficient = np.nanmean(dice)
+    # Convert to 0–255 and flatten
+    flat_palette = [int(x * 255) for rgb in color_list for x in rgb]
 
-    return cm, pixel_accuracy, mPA, mIoU, FWIoU, dice_coefficient
+    # Pad with zeros to length 768 (PIL expects full 256 colors x 3 channels)
+    flat_palette += [0] * (768 - len(flat_palette))
+
+    return flat_palette
+
+
+
+def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):
+    model_dir.mkdir(parents=True, exist_ok=True)
+    print(f"----Created directory {model_dir}----")
+
+    save_model_path = model_dir / f'{model_name_prefix}.pth'
+    torch.save(model.state_dict(), save_model_path)
+    print(f"----Model saved at {save_model_path}----")
+
+    onnx_model_path = model_dir / f'{model_name_prefix}.onnx'
+
+    # Create a dummy input with the same shape as your input
+    dummy_input = torch.randn(dummy_shape).to('cuda')  # replace H, W as needed
+    torch.onnx.export(
+        model, 
+        dummy_input, 
+        onnx_model_path,
+        input_names=["input"],
+        output_names=["output"],
+        opset_version=11,  # common version; increase if needed
+        do_constant_folding=True
+    )
+    print(f"----ONNX model saved at {onnx_model_path}----")
+
+

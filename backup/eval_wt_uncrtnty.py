@@ -1,12 +1,13 @@
 import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data
-from training import train_unet
+from backup.training import train_unet
 from tools import calc_metrics
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
+from backup.training import create_unet_multi_channels
 
 
 def load_model(config: dict, device: str) -> smp.Unet:
@@ -23,21 +24,58 @@ def load_model(config: dict, device: str) -> smp.Unet:
     model_dir = Path(config['root_dir']) / config['model_dir']
     # Load the model if there is a saved model, otherwise train a new model
     if model_dir.exists() and any(model_dir.glob('*.pth')):
-        model = smp.Unet(
-            encoder_name="resnet34",
-            encoder_weights=None,
-            in_channels=6,
-            classes=5
-        )
-        model.load_state_dict(torch.load(model_dir / 'model_epoch200.pth', weights_only=True))
-        print("======Loaded model from disk.======")
+        model = create_unet_multi_channels()
+        model_path = next(model_dir.glob('model_epoch*.pth'))
+        model.load_state_dict(torch.load(model_path, weights_only=True))
+        print(f"======Loaded model from disk: {model_path}.======")
     else:
-        model = train_unet(config)
+        model, _, _  = train_unet(config)
         print("####Trained a new model.####")
     
     model = model.to(device)
 
     return model
+
+
+def enable_dropout(model):
+    """
+    Enable dropout layers in the model while keeping the rest in evaluation mode.
+    """
+    for module in model.modules():
+        if isinstance(module, torch.nn.Dropout):
+            module.train()
+
+def predict_with_uncertainty(model, image, num_samples=50):
+    # Ensure the model is in evaluation mode
+    model.eval()
+    # Enable dropout layers for MC sampling without affecting BatchNorm layers
+    enable_dropout(model)
+    
+    preds_samples = []
+    aleatoric_vars_samples = []
+    
+    with torch.no_grad():
+        for _ in range(num_samples):
+            preds, log_vars = model(image)
+            preds_samples.append(preds)
+            aleatoric_vars_samples.append(torch.exp(log_vars))
+    
+    preds_samples = torch.stack(preds_samples)  # Shape: (num_samples, B, num_classes, H, W)
+    aleatoric_vars_samples = torch.stack(aleatoric_vars_samples)
+    
+    # Epistemic uncertainty: variance over predictions
+    epistemic_var = preds_samples.var(dim=0)
+    # Aleatoric uncertainty: mean predicted variance
+    aleatoric_var = aleatoric_vars_samples.mean(dim=0)
+    
+    predictive_variance = epistemic_var + aleatoric_var
+    mean_preds = preds_samples.mean(dim=0)
+    
+    return mean_preds, predictive_variance
+
+
+
+
 
 config_file = 'params/paths_zmachine.json'
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -45,13 +83,14 @@ with open(config_file, 'r') as f:
     config = json.load(f)
 
 
-_, _, val_loader = load_data(config)
+_, _, test_loader = load_data(config)
 model = load_model(config, device)
-model.eval()
+# model.eval()
+# enable_dropout(model)
 
 
 # Get one batch from the validation loader
-imgs, true_masks = next(iter(val_loader))
+imgs, true_masks = next(iter(test_loader))
 
 imgs = imgs.to(device)                  # (N, 3, H, W)
 true_masks = true_masks.to(device)      # (N, H, W)
@@ -73,9 +112,7 @@ fig, axs = plt.subplots(num_samples, 3, figsize=(10, 3*num_samples))
 
 for i in range(num_samples):
     # Original image: convert from tensor [C,H,W] to [H,W,C] and un-normalize if needed
-    # If you normalized your images earlier, you might have to denormalize here.
     img = imgs[i].permute(1, 2, 0).numpy()  
-    img = (img - img.min()) / (img.max() - img.min())  # Simple normalization for display
     
     # True mask and predicted mask are [H,W] arrays with class indices.
     # For visualization, we show them as a simple colormapped image.
@@ -86,7 +123,7 @@ for i in range(num_samples):
     true_flat = true_mask.flatten()
     pred_flat = pred_mask.flatten()
     num_classes = preds.shape[1]
-    cm, pixel_accuracy, mPA, mIoU, FWIoU, dice_coefficient = calc_metrics(true_flat, pred_flat, num_classes)
+    cm, OverallAccu, mAccu, mIoU, FWIoU, dice_coefficient = calc_metrics(true_flat, pred_flat, num_classes)
     
     
     if num_samples == 1:
@@ -94,7 +131,8 @@ for i in range(num_samples):
     else:
         axs_img, axs_true, axs_pred = axs[i, 0], axs[i, 1], axs[i, 2]
 
-    axs_img.imshow(img[:, :, :3])
+    display_channels = [4, 0, 2] # Roughness, Intensity, Range
+    axs_img.imshow(img[:, :, display_channels])
     axs_img.set_title('Original Image')
     axs_img.axis('off')
 
@@ -105,8 +143,8 @@ for i in range(num_samples):
 
     axs_pred.imshow(pred_mask, cmap='tab20', interpolation='nearest')
     axs_pred.set_title(f'Predicted Mask'
-                       f'\noverallPA: {pixel_accuracy:.4f};'
-                       f'\nmPA: {mPA:.4f};'
+                       f'\noAccu: {OverallAccu:.4f};'
+                       f'\nmAccu: {mAccu:.4f};'
                        f'\nmIoU: {mIoU:.4f};'
                        f'\nFWIoU: {FWIoU:.4f};'
                        f'\ndice_coeff: {dice_coefficient:.4f}')
@@ -115,5 +153,5 @@ for i in range(num_samples):
 plt.tight_layout()
 plt.show()
 timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-fig.savefig(f"output_{timestamp}.png")
+fig.savefig(f"outputs/output_{timestamp}.png")
 print(f"Saved output_{timestamp}.png")

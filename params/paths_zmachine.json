@@ -1,9 +1,20 @@
 {
-    "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/harvard_forest_33/unet_data",
+    "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/palau_2024",
     "image_dir": "images",
     "mask_dir": "masks",
-    "image_irz_pattern": "image*_irz.tif",
-    "image_nxnynz_pattern": "image*_nxnynz.tif",
-    "mask_file_pattern": "image*_mask.png",
-    "model_dir": "models"
+    "image_file_pattern": "*image_cube.npy",
+    "image_meta_pattern": "*_metadata.json",
+    "mask_file_pattern": "*_mask.png",
+    "train_val_test_split_file": "train_val_test_split_rnd3.json",
+    "model_dir": "models",
+    "model_name": "unetpp",
+    "encoder_name": "resnext50_32x4d",
+    "train_batch_size": 6,
+    "epoch_num": 100,
+    "model_save_interval": 40,
+    "stop_early": true,
+    "early_stop_patience": 15,
+    "model_file": "unetpp_resnext50_32x4d_best_20250401_222603.pth",
+    "test_img_idx_ls": [0, 1, 2, 3],
+    "eval_gt_available_ls": [true, true, true, true]
 }
