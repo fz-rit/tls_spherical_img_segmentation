@@ -7,6 +7,7 @@ from pathlib import Path
 from PIL import Image
 import numpy as np
 import matplotlib.gridspec as gridspec
+import seaborn as sns
 
 def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
     """
@@ -231,3 +232,113 @@ def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray,
     # plt.show()
 
     return metrics_by_threshold
+
+
+
+def plot_correlation_matrix(corr_matrix, 
+                            band_names=None, 
+                            title="Correlation Matrix of Image Bands",
+                            output_stem=None):
+    """
+    Plots the correlation matrix as a heatmap.
+
+    Parameters:
+    -----------
+    corr_matrix : np.ndarray
+        A (C, C) correlation matrix.
+
+    band_names : list of str, optional
+        A list of names for the spectral bands (length C). If None, band indices will be used.
+
+    title : str
+        Title of the heatmap.
+    """
+    C = corr_matrix.shape[0]
+    if band_names is None:
+        band_names = [f'Band {i}' for i in range(C)]
+
+    assert len(band_names) == C, f"Length of band names {len(band_names)} must match the number of bands {C}."
+    corr_fig = plt.figure(figsize=(8, 6))
+    sns.heatmap(corr_matrix, annot=True, fmt=".2f", cmap="coolwarm",
+                xticklabels=band_names, yticklabels=band_names,
+                square=True, cbar_kws={"shrink": 0.75})
+    plt.title(title)
+    plt.tight_layout()
+
+    output_path = Path(f"outputs/correlation_matrix_{output_stem}.png")
+    corr_fig.savefig(output_path)
+    print(f"1️Correlation matrix saved to {output_path}")
+
+
+def plot_pca_components(pcs, output_stem = None):
+    """
+    Plots the PCA/ICA/MNF components as single channel images.
+
+    Parameters:
+    -----------
+    pcs : np.ndarray
+        Principal components of shape (n_components, H, W).
+    """
+    n_components = pcs.shape[0]
+    fig, axes = plt.subplots(n_components, 1, figsize=(6, 3 * n_components))
+    if n_components == 1:
+        axes = [axes]
+
+    for i in range(n_components):
+        axes[i].imshow(pcs[i], cmap='plasma') # cmaps: 'gray', 'hot', 'cool', 'viridis', 'plasma', 'inferno'
+        axes[i].set_title(f'Component {i+1}')
+        axes[i].axis('off')
+
+    if 'PCA' in output_stem:
+        plt.suptitle("PCA Components")
+    elif 'MNF' in output_stem:
+        plt.suptitle("MNF Components")
+    elif 'ICA' in output_stem:
+        plt.suptitle("ICA Components")
+    else:
+        plt.suptitle("Unknown Components")
+    plt.tight_layout()
+
+    output_path = Path(f"outputs/pca_components_{output_stem}.png")
+    fig.savefig(output_path)
+    print(f"2️PCA/MNF/ICA components saved to {output_path}")
+    
+
+def plot_rgb_permutations(components, title="RGB Permutations of Components", output_stem=None):
+    """
+    Plots RGB images from all permutations of the first 3 components.
+
+    Parameters:
+    -----------
+    components : np.ndarray
+        Component images of shape (3, H, W).
+    title : str
+        Title prefix for each subplot.
+    """
+    from itertools import permutations
+
+    permuts = list(permutations([0, 1, 2]))
+    H, W = components.shape[1:]
+    fig, axes = plt.subplots(len(permuts), 1, figsize=(6, 3 * len(permuts)))
+
+    for ax, perm in zip(axes, permuts):
+        rgb = np.stack([components[i] for i in perm], axis=-1)
+        # Normalize each channel
+        for i in range(3):
+            ch = rgb[:, :, i]
+            rgb[:, :, i] = (ch - ch.min()) / (ch.max() - ch.min() + 1e-8)
+
+        # save rgb image
+        rgb = (rgb * 255).astype(np.uint8)
+        rgb_img = Image.fromarray(rgb)
+        rgb_img.save(f"outputs/{output_stem}_rgb_{perm[0]}_{perm[1]}_{perm[2]}.png")
+        ax.imshow(rgb)
+        ax.set_title(f"{title}\nR:Comp{perm[0]+1} G:Comp{perm[1]+1} B:Comp{perm[2]+1}")
+        ax.axis('off')
+
+    plt.tight_layout()
+    
+    if output_stem:
+        output_path = f"outputs/{output_stem}_PCs_permutations.png"
+        fig.savefig(output_path)
+        print(f"3️Saved RGB permutations plot to {output_path}")
