@@ -8,7 +8,8 @@ import segmentation_models_pytorch as smp
 import datetime
 from monte_carlo_dropout import MonteCarloDropoutUncertainty
 import numpy as np
-from visualize_tools import visualize_eval_output, compare_uncertainty_with_error_map
+from tools.visualize_tools import visualize_eval_output, compare_uncertainty_with_error_map
+import time
 
 INPUT_RESOLUTION = (540, 1440)  # (H, W)
 
@@ -71,7 +72,10 @@ def evaluate(imgs, true_masks, config, gt_available,
     print("🙂Evaluating the model in normal mode...")
     model.eval()
     with torch.no_grad():
+        start_time = time.time()
         preds = model(imgs)                 # (N, C, H, W)
+        end_time = time.time()
+        print(f"⏲️Time taken for inference: {(end_time - start_time)*1e3:.2f} ms")
         pred_masks = torch.argmax(preds, dim=1)  # (N, H, W)
 
     imgs = imgs.cpu()
@@ -133,7 +137,7 @@ def main():
         output_path_2 = out_dir / f'uncertainty_map_{key_str}_{timestamp}.png'
         output_path_3 = out_dir / f'uncertainty_vs_error_{key_str}_{timestamp}.png'
         output_paths = [output_path_1, output_path_2, output_path_3]
-        evaluate(imgs, true_masks, config, eval_gt_available, output_paths, show_now=True)  
+        evaluate(imgs, true_masks, config, eval_gt_available, output_paths, show_now=False)  
 
 if __name__ == '__main__':
     main()

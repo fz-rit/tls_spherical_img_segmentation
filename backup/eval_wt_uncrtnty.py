@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data
 from backup.training import train_unet
-from tools import calc_metrics
+from tools.load_tools import calc_metrics
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp

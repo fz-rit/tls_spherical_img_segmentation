@@ -1,14 +1,8 @@
 from collections import Counter
 from prepare_dataset import load_data
 import json
-# from sklearn.metrics import confusion_matrix
-import numpy as np
-from typing import Tuple
 from matplotlib.colors import ListedColormap
-import matplotlib.pyplot as plt
 import torch
-import time
-from pathlib import Path
 
 
 

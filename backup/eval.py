@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, load_image_cube_and_metadata
 from backup.training import train_unet
-from tools import calc_metrics, custom_cmap
+from tools.load_tools import calc_metrics, custom_cmap
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp

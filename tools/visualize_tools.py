@@ -1,13 +1,15 @@
 import matplotlib.pyplot as plt
 from prepare_dataset import resize_image_or_mask, NUM_CLASSES
-from tools import custom_cmap, get_pil_palette
-from metrics_tools import calculate_segmentation_statistics, compare_binary_maps
+from tools.load_tools import custom_cmap, get_pil_palette
+from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
 import datetime
 from pathlib import Path
 from PIL import Image
 import numpy as np
 import matplotlib.gridspec as gridspec
 import seaborn as sns
+from matplotlib.cm import get_cmap
+
 
 def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
     """
@@ -237,7 +239,7 @@ def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray,
 
 def plot_correlation_matrix(corr_matrix, 
                             band_names=None, 
-                            title="Correlation Matrix of Image Bands",
+                            title="Correlation Matrix of Feature Maps",
                             output_stem=None):
     """
     Plots the correlation matrix as a heatmap.
@@ -304,7 +306,7 @@ def plot_pca_components(pcs, output_stem = None):
     print(f"2️PCA/MNF/ICA components saved to {output_path}")
     
 
-def plot_rgb_permutations(components, title="RGB Permutations of Components", output_stem=None):
+def plot_rgb_permutations(components, output_stem=None):
     """
     Plots RGB images from all permutations of the first 3 components.
 
@@ -333,7 +335,7 @@ def plot_rgb_permutations(components, title="RGB Permutations of Components", ou
         rgb_img = Image.fromarray(rgb)
         rgb_img.save(f"outputs/{output_stem}_rgb_{perm[0]}_{perm[1]}_{perm[2]}.png")
         ax.imshow(rgb)
-        ax.set_title(f"{title}\nR:Comp{perm[0]+1} G:Comp{perm[1]+1} B:Comp{perm[2]+1}")
+        ax.set_title(f"{output_stem} rgb permutations\nR:Comp{perm[0]+1} G:Comp{perm[1]+1} B:Comp{perm[2]+1}")
         ax.axis('off')
 
     plt.tight_layout()
@@ -342,3 +344,33 @@ def plot_rgb_permutations(components, title="RGB Permutations of Components", ou
         output_path = f"outputs/{output_stem}_PCs_permutations.png"
         fig.savefig(output_path)
         print(f"3️Saved RGB permutations plot to {output_path}")
+
+
+def plot_channel_histograms(image_cube, channel_names=None, bins=256, colormap='tab10'):
+    """
+    Plots histogram for each of 8 channels in a 2x4 grid with shared x-axis.
+
+    Parameters:
+    - image_cube: np.ndarray of shape (8, H, W)
+    - channel_names: optional list of channel names for titles
+    - bins: number of histogram bins (default 256)
+    """
+    assert image_cube.shape[0] == 8, "This function assumes 8 channels"
+    cmap = get_cmap(colormap)
+    colors = [cmap(i) for i in range(8)]  # Get 8 distinct colors from the colormap
+
+    
+    fig, axes = plt.subplots(2, 4, figsize=(20, 8), sharex=True)
+    axes = axes.flatten()
+
+    for i in range(8):
+        ax = axes[i]
+        ax.hist(image_cube[i].ravel(), bins=bins, color=colors[i], alpha=0.75)
+        title = f'Channel {i}' if channel_names is None else channel_names[i]
+        ax.set_title(title)
+        ax.set_xlabel('Pixel Value')
+        ax.set_ylabel('Frequency')
+        # ax.set_yscale('log')
+        ax.grid(True)
+
+    plt.tight_layout()

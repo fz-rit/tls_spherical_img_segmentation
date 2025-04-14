@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, resize_image_or_mask
 from backup.training import train_unet, create_unet_multi_channels
-from tools import calc_metrics, custom_cmap, get_pil_palette
+from tools.load_tools import calc_metrics, custom_cmap, get_pil_palette
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp

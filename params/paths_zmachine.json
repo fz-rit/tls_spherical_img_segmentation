@@ -7,14 +7,14 @@
     "mask_file_pattern": "*_mask.png",
     "train_val_test_split_file": "train_val_test_split_rnd3.json",
     "model_dir": "models",
-    "model_name": "unetpp",
+    "model_name": "fpn",
     "encoder_name": "resnext50_32x4d",
     "train_batch_size": 6,
     "epoch_num": 100,
     "model_save_interval": 40,
     "stop_early": true,
     "early_stop_patience": 15,
-    "model_file": "unetpp_resnext50_32x4d_best_20250401_222603.pth",
-    "test_img_idx_ls": [0, 1, 2, 3],
-    "eval_gt_available_ls": [true, true, true, true]
+    "model_file": "fpn_resnext50_32x4d_best_20250401_220218.pth",
+    "test_img_idx_ls": [1],
+    "eval_gt_available_ls": [true]
 }
