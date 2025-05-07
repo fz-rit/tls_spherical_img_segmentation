@@ -10,6 +10,7 @@ from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
 from typing import Tuple, Dict, List, Any
 import json
+import yaml
 from pprint import pprint
 
 PATCH_PER_IMAGE = 6
@@ -17,26 +18,6 @@ PATCH_WIDTH = 256
 NUM_CLASSES = 6
 
 
-def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
-    """
-    Loads an image cube and its metadata from saved .npy files.
-
-    Parameters:
-    - image_cube_path: The path to the saved image cube file.
-    - metadata_path: The path to the saved metadata file.
-
-    Returns:
-    - A dictionary containing the image cube and metadata.
-    """
-    
-    # Load the image cube (8-channel data)
-    image_cube = np.load(image_cube_path, allow_pickle=True)
-    
-    # Load the metadata from .json file
-    with open(metadata_path, 'r') as file:
-        metadata = json.load(file)
-
-    return image_cube, metadata
 
 
 def resize_image_or_mask(arr, target_size):
@@ -99,14 +80,14 @@ def resize_image_and_mask(image, mask, target_size):
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
                  image_file_paths, 
-                 image_meta_paths,
                  mask_paths=None,  # Ground truth mask may not be available.
+                 input_channels=None,
                  patch_splits=PATCH_PER_IMAGE, 
                  transform=None, 
                  mask_transform=None,
                  labels_map=None):
         self.image_file_paths = image_file_paths
-        self.image_meta_paths = image_meta_paths
+        self.input_channels = input_channels
         self.mask_paths = mask_paths
         self.patch_splits = patch_splits
         self.transform = transform
@@ -129,7 +110,8 @@ class SegmentationPatchDataset(Dataset):
     def __getitem__(self, idx):
         i, x_start, x_end = self.patch_coords[idx]
 
-        image_cube, _ = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
+        image_cube = np.load(self.image_file_paths[i])
+        image_cube = image_cube[:, :, self.input_channels]  # Select only the input channels
         mask = np.array(Image.open(self.mask_paths[i]))
         # Resize the input image and mask to be divisible by 32: (540, 1440) -> (512, 1536)
         image_cube_resized, mask_resized = resize_image_and_mask(image_cube, mask, (512, 1536))
@@ -160,44 +142,20 @@ def get_data_paths(config: Dict, verbose: bool = False) -> Tuple[Dict[str, List[
     config (dict): Configuration dictionary.
     """
     root_dir = Path(config['root_dir'])
-    image_dir = root_dir / Path(config['image_dir'])
-    mask_dir = root_dir / Path(config['mask_dir'])
-    train_val_test_split_file = Path(config['root_dir']) / config['train_val_test_split_file']
+    train_val_test_split_file = root_dir / config['train_val_test_split_file']
 
-    with open(train_val_test_split_file, 'r') as file:
-        tvt_splits = json.load(file)
+    with open(train_val_test_split_file, 'r') as f:
+        split_paths = yaml.safe_load(f)
 
-    image_file_path_dict = {}
-    image_meta_path_dict = {}
-    mask_path_dict = {}
+    image_file_path_dict = split_paths['img']
+    mask_path_dict = split_paths['mask']
 
-    for split in ['train', 'val', 'test']:
-        image_file_path_dict[split] = []
-        image_meta_path_dict[split] = []
-        mask_path_dict[split] = []
-
-        for num_str in sorted(tvt_splits[split]):
-            for image_file_path in image_dir.glob(config['image_file_pattern']):
-                if num_str in image_file_path.stem:
-                    image_file_path_dict[split].append(image_file_path)
-                    break
-
-            for image_meta_path in image_dir.glob(config['image_meta_pattern']):
-                if num_str in image_meta_path.stem:
-                    image_meta_path_dict[split].append(image_meta_path)
-                    break
-
-            for mask_path in mask_dir.glob(config['mask_file_pattern']):
-                if num_str in mask_path.stem:
-                    mask_path_dict[split].append(mask_path)
-                    break 
     
     if verbose:
         pprint(image_file_path_dict)
-        pprint(image_meta_path_dict)
         pprint(mask_path_dict)
 
-    return image_file_path_dict, image_meta_path_dict, mask_path_dict
+    return image_file_path_dict, mask_path_dict
 
 
 # class BrightnessContrastOnlyFirst3Channels(A.ImageOnlyTransform):
@@ -252,10 +210,49 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
 
         return out
 
+
+def train_trasform_by_channls(input_channels:list, p=0.5):
+    """
+    
+    p: probability of applying the transform
+    """
+    # channel_groups = [
+    #     [0, 1, 2], # Intensity - Z - Range
+    #     [3, 4, 5], # Adjusted Intensity - ZInv - Range
+    #     [6, 7, 8], # Pseudo-RGB from normals
+    #     [9, 10, 11], # PCA
+    #     [12, 13, 14], # MNF
+    #     [15, 16, 17], # ICA
+    # ]
+    if len(input_channels) == 3:
+        shuffle_groups = [[0, 1, 2]]
+    elif len(input_channels) == 6:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5]]
+    elif len(input_channels) == 9:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+    elif len(input_channels) == 15:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8], 
+                          [9, 10, 11], [12, 13, 14]]
+
+    transform = A.Compose([
+        ChannelShuffleGroups(groups=shuffle_groups, p=p),
+        A.Resize(height=512, width=PATCH_WIDTH),
+        A.HorizontalFlip(p=0.5),
+        A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=10, p=0.5),
+        # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
+        # A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
+        #             std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
+        A.pytorch.ToTensorV2()
+    ],
+    additional_targets={'mask': 'mask'})
+
+    return transform
+
+
 def load_data(config):
     # Get image and mask paths
-    image_file_path_dict, image_meta_path_dict, mask_path_dict = get_data_paths(config)
-
+    image_file_path_dict, mask_path_dict = get_data_paths(config)
+    input_channels = config['input_channels']
     labels_map = {
         0: 'Void',
         1: 'Ground & Water',
@@ -266,19 +263,7 @@ def load_data(config):
     }
 
     # ---- Define Albumentations transforms ----
-    train_transform = A.Compose([
-                                    ChannelShuffleGroups(groups=[[0, 1, 2, 3, 4], [5, 6, 7]], p=0.5),
-                                    A.Resize(height=512, width=PATCH_WIDTH),
-                                    A.HorizontalFlip(p=0.5),
-                                    # A.VerticalFlip(p=0.5),
-                                    # A.RandomRotate90(p=0.5),
-                                    A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=10, p=0.5),
-                                    # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
-                                    # A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
-                                    #             std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
-                                    A.pytorch.ToTensorV2()
-                                ],
-                                additional_targets={'mask': 'mask'})
+    train_transform = train_trasform_by_channls(input_channels=input_channels, p=0.5)
 
     val_transform = A.Compose([
                                 A.Resize(height=512, width=PATCH_WIDTH),
@@ -293,12 +278,11 @@ def load_data(config):
     dataloaders = {}
     for split in ['train', 'val', 'test']:
         image_file_paths = image_file_path_dict[split]
-        image_meta_paths = image_meta_path_dict[split]
         mask_paths = mask_path_dict[split]
 
         dataset = SegmentationPatchDataset(
             image_file_paths=image_file_paths,
-            image_meta_paths=image_meta_paths,
+            input_channels=input_channels,
             mask_paths=mask_paths,
             patch_splits=PATCH_PER_IMAGE,
             transform=train_transform if split == 'train' else val_transform,

@@ -59,9 +59,8 @@ def visualize_eval_output(img, true_mask, pred_mask, gt_available=True, output_p
         pred_title = 'Predicted Mask (No GT)'
         true_title = 'Ground Truth Mask (Not Available)'
 
-    display_channels = [4, 0, 2] # Roughness, Intensity, Range
-    axs_img.imshow(img[:, :, display_channels])
-    axs_img.set_title('Pseudo color stacked from Roughness-Intensity-Range')
+    axs_img.imshow(img)
+    axs_img.set_title('Input Image')
     axs_img.axis('off')
 
     # For masks, use a discrete colormap to distinguish classes

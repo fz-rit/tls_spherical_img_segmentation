@@ -45,7 +45,7 @@ def load_model(config: dict, device: str) -> smp.Unet:
 
 
 def evaluate(imgs, true_masks, config, gt_available, 
-             output_path: Path,
+             output_paths: list[Path],
              show_now=False):
     """
     Evaluate the model on the test set.
@@ -60,15 +60,22 @@ def evaluate(imgs, true_masks, config, gt_available,
     imgs = imgs.to(device)                  # (N, C, H, W)
     true_masks = true_masks.to(device)      # (N, H, W)
 
+    # ---------Evaluate model in Monte Carlo Dropout mode and estimate uncertainty.------
+    print("🔮Evaluating the model in Bayesian mode...")
+    mcdu = MonteCarloDropoutUncertainty(model, imgs)
+    mcdu.execute(mc_iterations=40, 
+                mutual_information=True, 
+                output_path=output_paths[1])
+    uncertainty_map = mcdu.uncertainty_map
 
     # -----Evaluate model in normal mode.--------------
-    print("🙂 Evaluating the model ...")
+    print("🙂Evaluating the model in normal mode...")
     model.eval()
     with torch.no_grad():
         start_time = time.time()
         preds = model(imgs)                 # (N, C, H, W)
         end_time = time.time()
-        print(f"⏲️ Time taken for inference: {(end_time - start_time)*1e3:.2f} ms")
+        print(f"⏲️Time taken for inference: {(end_time - start_time)*1e3:.2f} ms")
         pred_masks = torch.argmax(preds, dim=1)  # (N, H, W)
 
     imgs = imgs.cpu()
@@ -92,9 +99,15 @@ def evaluate(imgs, true_masks, config, gt_available,
     visualize_eval_output(img, 
                           true_mask, 
                           pred_mask,
-                          output_path = output_path,
+                          output_path = output_paths[0],
                           gt_available = gt_available) 
     
+    if gt_available:
+        print("🔍Comparing uncertainty map with error map...")
+        error_map = np.zeros_like(true_mask)
+        error_map[true_mask != pred_mask] = 1
+        metrics_dict = compare_uncertainty_with_error_map(uncertainty_map, error_map, output_path=output_paths[2])
+        # print(f"Metrics comparing uncertainty map with error map: {metrics_dict}")
     
     if show_now:
         plt.show()
@@ -106,7 +119,6 @@ def main():
     with open(config_file, 'r') as f:
         config = json.load(f)
 
-    show_now = config['eval_imshow']
     _, _, test_loader = load_data(config)
     test_img_idx_ls = config['test_img_idx_ls'] 
     eval_gt_available_ls = config['eval_gt_available_ls']
@@ -114,16 +126,18 @@ def main():
     for test_img_idx, eval_gt_available in zip(test_img_idx_ls, eval_gt_available_ls):
         print(f"🔍Evaluating image {test_img_idx}...")
         imgs, true_masks = list(test_loader)[test_img_idx]
-
-        # print(f"imgs.shape: {imgs.shape}, true_masks.shape: {true_masks.shape}")
+        assert imgs.shape[0] == true_masks.shape[0], f"{imgs.shape} vs {true_masks.shape}❗The number of images and masks should be the same."
 
         # Prepare output paths.
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        key_str = Path(test_loader.dataset.image_file_paths[test_img_idx]).stem.split('_')[1][-4:] # the four numbers represent the test image dataset.
+        key_str = str(test_loader.dataset.image_file_paths[test_img_idx].stem).split('_')[1][-4:] # the four numbers represent the test image dataset.
         out_dir = Path(config['root_dir']) / 'outputs' / config['model_name'] / key_str
         out_dir.mkdir(parents=True, exist_ok=True)
         output_path_1 = out_dir / f'combined_output_{key_str}_{timestamp}.png'
-        evaluate(imgs, true_masks, config, eval_gt_available, output_path_1, show_now=show_now)  
+        output_path_2 = out_dir / f'uncertainty_map_{key_str}_{timestamp}.png'
+        output_path_3 = out_dir / f'uncertainty_vs_error_{key_str}_{timestamp}.png'
+        output_paths = [output_path_1, output_path_2, output_path_3]
+        evaluate(imgs, true_masks, config, eval_gt_available, output_paths, show_now=False)  
 
 if __name__ == '__main__':
     main()

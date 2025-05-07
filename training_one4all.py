@@ -29,7 +29,7 @@ class JointLoss(nn.Module):
         return self.first_weight * loss1 + self.second_weight * loss2
 
 
-def expand_first_conv_to_multi_channels(model):
+def expand_first_conv_to_multi_channels(model, expand_channels=8):
     """
     model: The SMP model after loading with 3-channel pretrained weights.
     This function:
@@ -70,7 +70,7 @@ def expand_first_conv_to_multi_channels(model):
 
 
 
-def build_model_for_multi_channels(model_name, encoder_name='resnet34', dropout_rate=0.3):
+def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_channels=3):
 
     if model_name == 'unetpp':
         model_class = smp.UnetPlusPlus
@@ -91,11 +91,13 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', dropout_
 
 
     encoder_name_list = [
-        'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 'resnext50_32x4d', 'resnext101_32x4d', 'resnext101_32x8d',
+        'resnet18', 'resnet34', 'resnet50', 'resnet101', 'resnet152', 
+        'resnext50_32x4d', 'resnext101_32x4d', 'resnext101_32x8d',
         'mobilenet_v2', 'mobilenet_v3_large', 'mobilenet_v3_small',
         'efficientnet-b0', 'efficientnet-b1', 'efficientnet-b2',
         'efficientnet-b3', 'efficientnet-b4', 'efficientnet-b5',
-        'efficientnet-b6', 'efficientnet-b7', 'mit_b2', 'mit_b3', 'timm-efficientnet-b5'
+        'efficientnet-b6', 'efficientnet-b7', 'mit_b2', 'mit_b3', 
+        'timm-efficientnet-b5'
     ]
     if encoder_name not in encoder_name_list:
         raise ValueError(f"Unknown encoder name: {encoder_name}. Supported encoders are: {encoder_name_list}")
@@ -107,8 +109,9 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', dropout_
         classes=NUM_CLASSES
     )
 
-    expand_first_conv_to_multi_channels(model)
-    add_dropout_to_decoder(model, p=dropout_rate)
+    if in_channels > 3:
+        expand_first_conv_to_multi_channels(model)
+    # add_dropout_to_decoder(model, p=dropout_rate)
 
     return model
 
@@ -147,7 +150,7 @@ def train_model(config, pretrained_model_source=False, save_model=False):
         second_weight=0.5
     )
 
-    dummy_shape = (3, 8, 512, PATCH_WIDTH)
+    dummy_shape = (3, 3, 512, PATCH_WIDTH)
     epoch_num = config['epoch_num']
 
     # Tracking containers
@@ -310,9 +313,6 @@ def train_model(config, pretrained_model_source=False, save_model=False):
         'val_mIoUs': val_mIoUs
     }
     return out_dict
-
-
-
 
 
 if __name__ == "__main__":
