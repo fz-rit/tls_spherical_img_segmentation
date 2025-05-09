@@ -1,17 +1,21 @@
 {
     "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/palau_2024",
     "train_val_test_split_file": "concrete_paths_rnd5.yaml",
-    "input_channels": [9, 10, 11],
+    "input_channels_ls": [
+    [5, 5, 5]],
     "model_dir": "models",
     "model_name": "unet",
+    "num_workers": 10,
+    "mean_std_file": "mean_std_0_1_2.yaml",
     "encoder_name": "resnext50_32x4d",
-    "train_batch_size": 6,
+    "train_batch_size": 15,
     "epoch_num": 100,
     "model_save_interval": 40,
     "stop_early": true,
-    "early_stop_patience": 15,
-    "model_file": "unet_resnext50_32x4d_best_20250506_231031.pth",
+    "early_stop_patience": 10,
+    "model_file_ls": [
+    "unet_resnext50_32x4d_epoch_040__5_5_5_20250508_214221.pth"],
     "test_img_idx_ls": [0, 1, 2, 3, 4, 5, 6],
     "eval_gt_available_ls": [true, true, true, true, true, true, true],
-    "eval_imshow": true
+    "eval_imshow": false
 }

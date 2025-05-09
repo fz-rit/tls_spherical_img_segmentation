@@ -3,8 +3,9 @@ from prepare_dataset import load_data
 import json
 from matplotlib.colors import ListedColormap
 import torch
-
-
+import yaml
+from pathlib import Path
+import numpy as np
 
 config_file = 'params/paths_zmachine.json'
 with open(config_file, 'r') as f:
@@ -103,3 +104,25 @@ def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):
     print(f"----ONNX model saved at {onnx_model_path}----")
 
 
+def dump_dict_to_yaml(dict_obj, output_path: Path):
+    """
+    Dump a dictionary to a YAML file.
+
+    Args:
+        dict_obj (dict): Dictionary to dump.
+        output_path (Path): Path to the output YAML file.
+    """
+    # Ensure the values are serializable
+    for key, value in dict_obj.items():
+        if isinstance(value, torch.Tensor):
+            dict_obj[key] = value.cpu().numpy().tolist()
+        elif isinstance(value, np.ndarray):
+            dict_obj[key] = np.round(dict_obj[key], 4).tolist()
+        elif isinstance(value, float):
+            dict_obj[key] = round(float(value), 4)
+        elif isinstance(value, list):
+            dict_obj[key] = [round(float(v), 4) if isinstance(v, float) else v for v in value]
+
+    with open(output_path, 'w') as f:
+        yaml.dump(dict_obj, f)
+    print(f"Evaluation metrics saved to {output_path}")

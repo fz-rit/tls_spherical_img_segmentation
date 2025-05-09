@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from prepare_dataset import resize_image_or_mask, NUM_CLASSES
+from prepare_dataset import NUM_CLASSES
 from tools.load_tools import custom_cmap, get_pil_palette
 from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
 import datetime

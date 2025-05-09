@@ -114,6 +114,7 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
         'oAcc': oAccu,
         'mAcc': mAcc,
         'mIoU': mIoU,
+        'IoU_per_class': IoU,
         'FWIoU': FWIoU,
         'dice_coefficient': dice_coefficient
     }

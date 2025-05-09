@@ -12,69 +12,78 @@ from typing import Tuple, Dict, List, Any
 import json
 import yaml
 from pprint import pprint
+from tools.get_mean_std import read_mean_std_from_yaml, normalize_img_per_channel
 
-PATCH_PER_IMAGE = 6
-PATCH_WIDTH = 256
+PATCH_PER_IMAGE = 5
+# PATCH_HEIGHT = 544
+# PATCH_WIDTH = 256
 NUM_CLASSES = 6
 
 
 
-
-def resize_image_or_mask(arr, target_size):
+def pad_img_or_mask(arr):
     """
-    Resize a 2D mask or 3D image cube using PIL.
+    Padding a 2D mask or 3D image to make it divisible by 32.
     
     Args:
         arr (np.ndarray): Input array of shape (H, W) or (H, W, C)
-        target_size (tuple): (target_height, target_width)
     
     Returns:
-        np.ndarray: Resized array with shape:
-                    - (target_H, target_W) if input was 2D
-                    - (target_H, target_W, C) if input was 3D
+        np.ndarray: Padded array with shape:
+                    - (H + pad_h, W + pad_w) if input was 2D
+                    - (H + pad_h, W + pad_w, C) if input was 3D
     """
-    target_h, target_w = target_size
-
-    # Ensure dtype is supported by PIL
-    if arr.dtype == np.int64:
-        arr = arr.astype(np.int32)
-    elif arr.dtype == np.float64:
-        arr = arr.astype(np.float32)
+    h, w = arr.shape[:2]
+    pad_h = (32 - (h % 32)) % 32 // 2 # handle special case when h % 32 == 0
+    pad_w = (32 - (w % 32)) % 32 // 2
 
     if arr.ndim == 2:
-        # It's a 2D mask → use NEAREST
-        img = Image.fromarray(arr)
-        resized = img.resize((target_w, target_h), resample=Image.NEAREST)
-        return np.array(resized)
-
+        # It's a 2D mask
+        padded = np.pad(arr, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
     elif arr.ndim == 3:
-        # It's an image cube → resize each channel using BILINEAR
-        resized_channels = []
-        for c in range(arr.shape[2]):
-            img_c = Image.fromarray(arr[:, :, c])
-            img_resized = img_c.resize((target_w, target_h), resample=Image.BILINEAR)
-            resized_channels.append(np.array(img_resized))
-        return np.stack(resized_channels, axis=2)
-
+        # It's a 3D image cube
+        padded = np.pad(arr, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='constant', constant_values=0)
     else:
         raise ValueError(f"Input array must be 2D or 3D, got shape {arr.shape}")
+    return padded.astype(np.float32)
     
-def resize_image_and_mask(image, mask, target_size):
+    
+def pad_img_and_mask(image, mask):
     """
-    Resize an image and its corresponding mask to the target size.
+    Padding an image and its corresponding mask to the target size.
     
     Args:
         image (np.ndarray): Input image of shape (H, W, C)
         mask (np.ndarray): Input mask of shape (H, W)
-        target_size (tuple): (target_height, target_width)
     
     Returns:
-        Tuple[np.ndarray, np.ndarray]: Resized image and mask.
+        Tuple[np.ndarray, np.ndarray]: Padded image and mask.
     """
-    resized_image = resize_image_or_mask(image, target_size)
-    resized_mask = resize_image_or_mask(mask, target_size)
-    return resized_image, resized_mask
+    padded_image = pad_img_or_mask(image)
+    padded_mask = pad_img_or_mask(mask)
+    return padded_image, padded_mask
 
+def depad_img_or_mask(padded_arr, original_shape):
+    """
+    Remove symmetric padding from a padded array.
+    
+    Args:
+        padded_arr (np.ndarray): Padded image or mask, shape (H + pad_h*2, W + pad_w*2) or (H + pad_h*2, W + pad_w*2, C)
+        original_shape (Tuple[int, int] or Tuple[int, int, int]): Original shape of the array before padding.
+    
+    Returns:
+        np.ndarray: Depadded array of shape original_shape.
+    """
+    orig_h, orig_w = original_shape[:2]
+    pad_h = (32 - (orig_h % 32)) % 32 // 2
+    pad_w = (32 - (orig_w % 32)) % 32 // 2
+
+    if padded_arr.ndim == 2:
+        return padded_arr[pad_h:pad_h + orig_h, pad_w:pad_w + orig_w]
+    elif padded_arr.ndim == 3:
+        return padded_arr[pad_h:pad_h + orig_h, pad_w:pad_w + orig_w, :]
+    else:
+        raise ValueError(f"Input array must be 2D or 3D, got shape {padded_arr.shape}")
 
 
 class SegmentationPatchDataset(Dataset):
@@ -84,49 +93,44 @@ class SegmentationPatchDataset(Dataset):
                  input_channels=None,
                  patch_splits=PATCH_PER_IMAGE, 
                  transform=None, 
-                 mask_transform=None,
                  labels_map=None):
         self.image_file_paths = image_file_paths
         self.input_channels = input_channels
         self.mask_paths = mask_paths
         self.patch_splits = patch_splits
         self.transform = transform
-        self.mask_transform = mask_transform
         self.labels_map = labels_map
-        self.patch_coords = []  # Will store tuples: [(img_index, x_start, x_end)...]
+        self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
-        patch_width = PATCH_WIDTH
-        
-        # Create patch coordinates for all images
-        for i in range(len(self.image_file_paths)):
-            for p in range(patch_splits):
-                x_start = p * patch_width
-                x_end = x_start + patch_width
-                self.patch_coords.append((i, x_start, x_end))
         
     def __len__(self):
-        return len(self.patch_coords)
+        return len(self.patch_idx_ls)
     
     def __getitem__(self, idx):
-        i, x_start, x_end = self.patch_coords[idx]
+        i, p = self.patch_idx_ls[idx]
 
         image_cube = np.load(self.image_file_paths[i])
         image_cube = image_cube[:, :, self.input_channels]  # Select only the input channels
-        mask = np.array(Image.open(self.mask_paths[i]))
-        # Resize the input image and mask to be divisible by 32: (540, 1440) -> (512, 1536)
-        image_cube_resized, mask_resized = resize_image_and_mask(image_cube, mask, (512, 1536))
 
-        image_patch = image_cube_resized[:, x_start:x_end, :]
-        mask_patch = mask_resized[:, x_start:x_end]
+        image_cube = normalize_img_per_channel(image_cube)
+        mask = np.array(Image.open(self.mask_paths[i]))
+
+        patch_width = image_cube.shape[1] // self.patch_splits
+        x_start = p * patch_width
+        x_end = x_start + patch_width
+        image_patch = image_cube[:, x_start:x_end, :]
+        mask_patch = mask[:, x_start:x_end]
+
+        image_patch, mask_patch = pad_img_and_mask(image_patch, mask_patch)
 
         # Apply Albumentations transform if provided
         if self.transform:
             transformed = self.transform(image=image_patch, mask=mask_patch)
             image_patch = transformed["image"]  # shape: (C, H, W) after ToTensorV2
-            mask_patch = transformed["mask"]          # shape: (H, W) or (1, H, W)
+            mask_patch = transformed["mask"]    # shape: (H, W) or (1, H, W)
             mask_patch = mask_patch.long()
         else:
-            # If no transform, convert to torch.Tensor manually
+            print("⚠️ WARNING: No transform provided. Converting to tensor manually.")
             image_patch = torch.from_numpy(image_patch).permute(2, 0, 1).float() / 255.0
             mask_patch = torch.from_numpy(mask_patch).long()
 
@@ -211,7 +215,7 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
         return out
 
 
-def train_trasform_by_channls(input_channels:list, p=0.5):
+def trasform_by_channls(input_channels:list, p=0.5, mean_std_dict=None):
     """
     
     p: probability of applying the transform
@@ -226,22 +230,35 @@ def train_trasform_by_channls(input_channels:list, p=0.5):
     # ]
     if len(input_channels) == 3:
         shuffle_groups = [[0, 1, 2]]
+        # norm_mean = [0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225]
     elif len(input_channels) == 6:
         shuffle_groups = [[0, 1, 2], [3, 4, 5]]
+        # norm_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225]
     elif len(input_channels) == 9:
         shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+        # norm_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406, 0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225, 0.229, 0.224, 0.225]
     elif len(input_channels) == 15:
         shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8], 
                           [9, 10, 11], [12, 13, 14]]
+        # norm_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406,
+        #                 0.485, 0.456, 0.406, 0.485, 0.456, 0.406,
+        #                 0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225,
+        #                 0.229, 0.224, 0.225, 0.229, 0.224, 0.225,
+        #                 0.229, 0.224, 0.225]
+
+    norm_mean = mean_std_dict['mean']
+    norm_std = mean_std_dict['std']
 
     transform = A.Compose([
         ChannelShuffleGroups(groups=shuffle_groups, p=p),
-        A.Resize(height=512, width=PATCH_WIDTH),
         A.HorizontalFlip(p=0.5),
         A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=10, p=0.5),
         # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
-        # A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
-        #             std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
+        # A.Normalize(mean=norm_mean, std=norm_std),  ## Due to the distribution difference, training without normalization is better.
         A.pytorch.ToTensorV2()
     ],
     additional_targets={'mask': 'mask'})
@@ -249,10 +266,12 @@ def train_trasform_by_channls(input_channels:list, p=0.5):
     return transform
 
 
-def load_data(config):
+def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, DataLoader]:
     # Get image and mask paths
     image_file_path_dict, mask_path_dict = get_data_paths(config)
-    input_channels = config['input_channels']
+    num_workers = config['num_workers']
+    mean_std_yaml_file = Path(config['root_dir']) / config['mean_std_file']
+    mean_std_dict = read_mean_std_from_yaml(mean_std_yaml_file)
     labels_map = {
         0: 'Void',
         1: 'Ground & Water',
@@ -263,13 +282,12 @@ def load_data(config):
     }
 
     # ---- Define Albumentations transforms ----
-    train_transform = train_trasform_by_channls(input_channels=input_channels, p=0.5)
+    train_transform = trasform_by_channls(input_channels=input_channels, p=0.5, mean_std_dict=mean_std_dict)
 
     val_transform = A.Compose([
-                                A.Resize(height=512, width=PATCH_WIDTH),
                                 # A.Normalize(
-                                #     mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0),
-                                #     std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)
+                                #     mean=mean_std_dict['mean'],
+                                #     std=mean_std_dict['std']
                                 # ),
                                 ToTensorV2()
                             ], additional_targets={'mask': 'mask'})
@@ -290,7 +308,10 @@ def load_data(config):
         )
 
         bt_size = PATCH_PER_IMAGE if split == 'test' else config['train_batch_size']
-        dataloaders[split] = DataLoader(dataset, batch_size=bt_size, shuffle=True if split == 'train' else False, num_workers=2)
+        dataloaders[split] = DataLoader(dataset, 
+                                        batch_size=bt_size, 
+                                        shuffle=True if split == 'train' else False, 
+                                        num_workers=num_workers)
 
     train_loader = dataloaders['train']
     val_loader = dataloaders['val']
@@ -298,26 +319,29 @@ def load_data(config):
     return train_loader, val_loader, test_loader
 
 
+
+
 if __name__ == "__main__":
     config_file = 'params/paths_zmachine.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
     
-    train_loader, val_loader, test_loader = load_data(config)
+    input_channels = config['input_channels_ls'][0]
+    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
     print(f"Training data: {len(train_loader.dataset)} samples")
     print(f"Validation data: {len(val_loader.dataset)} samples")
     print(f"Test data: {len(test_loader.dataset)} samples")
     print("Data loaders created successfully!")
     print("Sample batch from training loader:")
-    for imgs, masks in train_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-    print("Sample batch from validation loader:")
-    for imgs, masks in val_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-    print("Sample batch from test loader:")
-    for imgs, masks in test_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
+    imgs, masks = next(iter(train_loader))
+    print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
 
+    print("Sample batch from validation loader:")
+    imgs, masks = next(iter(val_loader))
+    print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+
+    print("Sample batch from test loader:")
+    imgs, masks = next(iter(test_loader))
+    print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    
+    
