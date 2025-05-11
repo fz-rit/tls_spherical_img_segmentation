@@ -11,8 +11,11 @@ from tools.metrics_tools import calc_oAccu_mIoU
 from tools.visualize_tools import plot_training_validation_losses, plot_training_validation_metrics
 from tools.load_tools import save_model_locally, dump_dict_to_yaml
 import time
-from pprint import pprint
+from pprint import pformat
 from tools.earlystopping import EarlyStopping
+from tools.logger_setup import Logger
+
+log = Logger()
 
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
@@ -30,13 +33,10 @@ class JointLoss(nn.Module):
 
 def expand_first_conv_to_multi_channels(model, expand_channels=6):
     """
-    model: The SMP model after loading with 3-channel pretrained weights.
-    This function:
-      1. Reads the existing pretrained conv1 (shape [64, 3, 7, 7])
-      2. Creates a new conv1 (shape [64, 6, 7, 7])
-      3. Copies weights of channels 0, 2, 4 to the new conv1
-      4. Randomly initializes channels 1, 3, 5, 6, 7
-      5. Assigns the new conv1 back
+    Expands the first convolutional layer of the model to accept more input channels.
+    Args:
+        model (torch.nn.Module): The model to modify.
+        expand_channels (int): The number of input channels to expand to.
     """
 
     # 1. Get the pretrained conv1
@@ -84,6 +84,8 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_chann
         model_class = smp.DeepLabV3
     elif model_name == 'deeplabv3plus':
         model_class = smp.DeepLabV3Plus
+    elif model_name == 'segformer':
+        model_class = smp.Segformer
     else:
         raise ValueError(f"Unknown model name: {model_name}")
 
@@ -108,19 +110,19 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_chann
     )
 
     if in_channels > 3:
-        expand_first_conv_to_multi_channels(model)
+        expand_first_conv_to_multi_channels(model, expand_channels=in_channels)
     # add_dropout_to_decoder(model, p=dropout_rate)
 
     return model
 
 
-def train_model(config, input_channels, pretrained_model_source=False, save_model=False):
+def train_model(config, input_channels, model_name, pretrained_model_source=False, save_model=False):
     # -------------------------------------------------------------------------
     # 1. Setup
     # -------------------------------------------------------------------------
     train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
     model = build_model_for_multi_channels(
-        model_name=config['model_name'],
+        model_name=model_name,
         encoder_name=config['encoder_name'],
         in_channels=len(input_channels)
     )
@@ -131,12 +133,12 @@ def train_model(config, input_channels, pretrained_model_source=False, save_mode
     channel_info_str = '_'.join([str(ch) for ch in input_channels])
     # If loading from a pretrained model
     if pretrained_model_source:
-        model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
+        model_dir = Path(config['root_dir']) / config['model_dir'] / model_name
         model_file = model_dir / config['model_file']
         pretrained_epoch = int(model_file.stem.split('_')[-1])
         if model_file.exists():
             model.load_state_dict(torch.load(model_file, weights_only=True))
-            print(f"======🌞Loaded model from disk: {model_file.stem}.======")
+            log.info(f"======🌞Loaded model from disk: {model_file.stem}.======")
         else:
             raise FileNotFoundError(f"Pretrained model not found at {model_file}")
 
@@ -235,7 +237,7 @@ def train_model(config, input_channels, pretrained_model_source=False, save_mode
         # ---------------------
         #   Logging
         # ---------------------
-        print(f"Epoch {epoch + 1}/{epoch_num} | "
+        log.info(f"Epoch {epoch + 1}/{epoch_num} | "
               f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
               f"Train oAcc: {train_oAccu:.4f}, mIoU: {train_mIoU:.4f} | "
               f"Val oAcc: {val_oAccu:.4f}, mIoU: {val_mIoU:.4f}")
@@ -258,9 +260,9 @@ def train_model(config, input_channels, pretrained_model_source=False, save_mode
         #  Save at interval or if triggered by early stopping
         # ---------------------------------------------------------------------
         if save_model and (save_by_interval or save_due_to_early_stop):
-            model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
+            model_dir = Path(config['root_dir']) / config['model_dir'] / model_name
             timestr = time.strftime("%Y%m%d_%H%M%S")
-            model_name_prefix = f"{config['model_name']}_{config['encoder_name']}_epoch_{epoch+1:03d}__{channel_info_str}_{timestr}"
+            model_name_prefix = f"model_name_{config['encoder_name']}_epoch_{epoch+1:03d}__{channel_info_str}_{timestr}"
             save_model_locally(
                 model=model,
                 model_dir=model_dir,
@@ -270,7 +272,7 @@ def train_model(config, input_channels, pretrained_model_source=False, save_mode
 
         # If early stopping says to stop, break now
         if save_due_to_early_stop:
-            print("⏹ Early stopping triggered!")
+            log.info("⏹ Early stopping triggered!")
             break
 
     # -------------------------------------------------------------------------
@@ -281,26 +283,26 @@ def train_model(config, input_channels, pretrained_model_source=False, save_mode
         model.load_state_dict(best_model_state)
 
         # Save it under a 'best' prefix
-        model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
+        model_dir = Path(config['root_dir']) / config['model_dir'] / model_name
         timestr = time.strftime("%Y%m%d_%H%M%S")
         
-        model_name_prefix = f"{config['model_name']}_{config['encoder_name']}_best_{channel_info_str}_{timestr}"
+        model_name_prefix = f"{model_name}_{config['encoder_name']}_best_{channel_info_str}_{timestr}"
         save_model_locally(
             model=model,
             model_dir=model_dir,
             model_name_prefix=model_name_prefix,
             dummy_shape=dummy_shape
         )
-        print(f"✅ Best model saved with val_loss = {best_val_loss:.4f}")
+        log.info(f"✅ Best model saved with val_loss = {best_val_loss:.4f}")
 
     # -------------------------------------------------------------------------
     # 5. Save plots and return
     # -------------------------------------------------------------------------
     timestr = time.strftime("%Y%m%d_%H%M%S")
-    plt_save_path = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'losses_{channel_info_str}_{timestr}.png'
+    plt_save_path = Path(config['root_dir']) / 'outputs' / model_name / f'losses_{channel_info_str}_{timestr}.png'
     plot_training_validation_losses(train_losses, val_losses, plt_save_path)
 
-    metrics_save_path = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'metrics_{channel_info_str}_{timestr}.png'
+    metrics_save_path = Path(config['root_dir']) / 'outputs' / model_name / f'metrics_{channel_info_str}_{timestr}.png'
     plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, metrics_save_path)
 
     out_dict = {
@@ -311,7 +313,7 @@ def train_model(config, input_channels, pretrained_model_source=False, save_mode
         'train_mIoUs': train_mIoUs,
         'val_mIoUs': val_mIoUs
     }
-    train_log_file = Path(config['root_dir']) / 'outputs' / config['model_name'] / f'train_log_{channel_info_str}.yaml'
+    train_log_file = Path(config['root_dir']) / 'outputs' / model_name / f'train_log_{channel_info_str}.yaml'
     dump_dict_to_yaml(out_dict, train_log_file)
     return out_dict
 
@@ -320,12 +322,18 @@ if __name__ == "__main__":
     config_file = 'params/paths_zmachine.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
-    pprint(config)
+    log.info(pformat(config))
     input_channels_ls = config['input_channels_ls']
-    for input_channels in input_channels_ls:
-        print(f"✈️ Training with input channels: {input_channels}")
-        train_model(config, input_channels=input_channels, pretrained_model_source=False, save_model=True)
-        # 🔻 Explicitly free GPU memory after each run
-        torch.cuda.empty_cache()
-        gc.collect()
+    model_name_ls = config['model_name_ls']
+    for model_name in model_name_ls:
+        for input_channels in input_channels_ls:
+            log.info(f"✈️ Training {model_name} with input channels: {input_channels}")
+            train_model(config, 
+                        input_channels=input_channels, 
+                        model_name= model_name, 
+                        pretrained_model_source=False, save_model=True)
+            
+            #Explicitly free GPU memory after each run
+            torch.cuda.empty_cache()
+            gc.collect()
     

@@ -1,7 +1,7 @@
 import torch
 import matplotlib.pyplot as plt
-from prepare_dataset import load_data, NUM_CLASSES, depad_img_or_mask, PATCH_PER_IMAGE
-from training_one4all import train_model, build_model_for_multi_channels
+from prepare_dataset import load_data, depad_img_or_mask, PATCH_PER_IMAGE
+from training_one4all import build_model_for_multi_channels
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
@@ -11,11 +11,14 @@ from tools.metrics_tools import calculate_segmentation_statistics
 import time
 import numpy as np
 from tools.load_tools import dump_dict_to_yaml
+from tools.logger_setup import Logger
+import re
 
+log = Logger()
 INPUT_RESOLUTION = (540, 1440)  # (H, W)
 N_CLASSES = 6
 
-def load_model(config: dict, input_channels:list, device: str) -> smp.Unet:
+def load_model(config: dict, input_channels:list, model_name: str, device: str) -> smp.Unet:
     """
     Load the trained model.
 
@@ -26,21 +29,20 @@ def load_model(config: dict, input_channels:list, device: str) -> smp.Unet:
     model (smp.Unet): Trained model.
     """
     
-    model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
+    model_dir = Path(config['root_dir']) / config['model_dir'] / model_name
     channels_str = '_'.join([str(ch) for ch in input_channels])
-    model_file_ls = [model_dir / model_file_name for model_file_name in config['model_file_ls'] if channels_str in model_file_name]
+    pattern = re.compile(rf"^.*_best_{channels_str}_\d{{8}}_\d{{6}}\.pth$")
+
+    model_file_ls = [f for f in model_dir.glob("*.pth") if pattern.search(f.name)]
     model_file = model_file_ls[0] if len(model_file_ls) > 0 else None
     # Load the model if there is a saved model, otherwise train a new model
     if model_file.exists():
-        model = build_model_for_multi_channels(model_name=config['model_name'],
+        model = build_model_for_multi_channels(model_name=model_name,
                                            encoder_name=config['encoder_name'],
                                             in_channels=len(input_channels))
         model.load_state_dict(torch.load(model_file, weights_only=True))
-        print(f"======Loaded model from disk: {model_file.stem}.======")
+        log.info(f"======Loaded model from disk: {model_file.stem}.pth.======")
     else:
-        # out_dict = train_model(config)
-        # model = out_dict['model']
-        # print("####Trained a new model.####")
         raise FileNotFoundError(f"Model file {model_file} not found. Please train the model first.")
     
     model = model.to(device)
@@ -52,6 +54,7 @@ def load_model(config: dict, input_channels:list, device: str) -> smp.Unet:
 
 def evaluate_single_img(imgs, true_masks, config, 
              input_channels: list,
+             model_name: str,
              gt_available: bool,
              output_path: Path,
              show_now=False):
@@ -63,20 +66,20 @@ def evaluate_single_img(imgs, true_masks, config,
         device (str): Device to run the evaluation on.
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    model = load_model(config, input_channels, device)
+    model = load_model(config, input_channels, model_name, device)
     
     imgs = imgs.to(device)                  # (N, C, H, W)
     true_masks = true_masks.to(device)      # (N, H, W)
 
 
     # -----Evaluate model in normal mode.--------------
-    print("🙂 Evaluating the model ...")
+    log.info("🙂 Evaluating the model ...")
     model.eval()
     with torch.no_grad():
         start_time = time.time()
         preds = model(imgs)                 # (N, Class, H, W)
         end_time = time.time()
-        print(f"⏲️ Time taken for inference: {(end_time - start_time)*1e3:.2f} ms")
+        log.info(f"⏲️ Time taken for inference: {(end_time - start_time)*1e3:.2f} ms")
         pred_masks = torch.argmax(preds, dim=1)  # (N, H, W)
 
     imgs = imgs.cpu()
@@ -104,6 +107,7 @@ def evaluate_single_img(imgs, true_masks, config,
     visualize_eval_output(combined_img, 
                           combined_true_mask, 
                           combined_pred_mask,
+                          input_channels = input_channels,
                           output_path = output_path,
                           gt_available = gt_available) 
     
@@ -115,7 +119,7 @@ def evaluate_single_img(imgs, true_masks, config,
     
 
 
-def evaluate_model(config: dict, input_channels: list):
+def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet'):
     show_now = config['eval_imshow']
     _, _, test_loader = load_data(config, input_channels)
     channels_str = '_'.join([str(ch) for ch in input_channels])
@@ -126,17 +130,18 @@ def evaluate_model(config: dict, input_channels: list):
     true_mask_ls = []
     pred_mask_ls = []
     for test_img_idx, eval_gt_available in zip(test_img_idx_ls, eval_gt_available_ls):
-        print(f"🔍Evaluating image {test_img_idx}...")
+        log.info(f"🔍Evaluating image {test_img_idx}...")
         imgs, true_masks = list(test_loader)[test_img_idx]
 
         # Prepare output paths.
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         key_str = Path(test_loader.dataset.image_file_paths[test_img_idx]).stem.split('_')[1][-4:] # the four numbers represent the test image dataset.
-        out_dir = Path(config['root_dir']) / 'outputs' / config['model_name'] / key_str
+        out_dir = Path(config['root_dir']) / 'outputs' / model_name / key_str
         out_dir.mkdir(parents=True, exist_ok=True)
         eval_img_output_path = out_dir / f'combined_output_{key_str}_{channels_str}_{timestamp}.png'
         combined_true_mask, combined_pred_mask = evaluate_single_img(imgs, true_masks, config, 
                                                             input_channels,
+                                                            model_name,
                                                           eval_gt_available, 
                                                           eval_img_output_path, 
                                                           show_now=show_now)  
@@ -149,7 +154,7 @@ def evaluate_model(config: dict, input_channels: list):
     pred_mask = np.concatenate(pred_mask_ls)
 
     metric_dict = calculate_segmentation_statistics(true_mask, pred_mask, N_CLASSES)
-    output_file = out_dir.parent / f"eval_metrics_{timestamp}.yaml"
+    output_file = out_dir.parent / f"eval_metrics_{channels_str}_{timestamp}.yaml"
     dump_dict_to_yaml(metric_dict, output_file)
 
 
@@ -160,10 +165,12 @@ def main():
         config = json.load(f)
 
     input_channels_ls = config['input_channels_ls']
-    for input_channels in input_channels_ls:
-        assert input_channels in config['input_channels_ls'], f"Input channel {input_channels} not found in the list of input channels."
-        print(f"Input channels: {input_channels}")
-        evaluate_model(config, input_channels)
+    model_name_ls = config['model_name_ls']
+    for model_name in model_name_ls:
+        for input_channels in input_channels_ls:
+            assert input_channels in config['input_channels_ls'], f"Input channel {input_channels} not found in the list of input channels."
+            log.info(f"Input channels: {input_channels}")
+            evaluate_model(config, input_channels, model_name)
 
 
 

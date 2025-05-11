@@ -31,24 +31,32 @@ def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
     print(f"🎨Color mask saved to {color_path}")
 
 
-def visualize_eval_output(img, true_mask, pred_mask, gt_available=True, output_path: Path = None):
+def visualize_eval_output(img, true_mask, pred_mask, input_channels, gt_available=True, output_path: Path = None):
     """"
     Visualize the image and masks.
     """
     N_CLASSES = 6
-    fig, axs = plt.subplots(3, 1, figsize=(10, 6))
-
+    input_channels_str = '_'.join([str(ch) for ch in input_channels])
 
     # Compute metrics between true_mask and pred_mask
     true_flat = true_mask.flatten()
     pred_flat = pred_mask.flatten()
+    num_subplots = 4 if gt_available else 3
+
+    # fig, axs = plt.subplots(num_subplots, 1, figsize=(10, 6))
+    fig, axs = plt.subplots(
+            num_subplots, 1, 
+            figsize=(8, 10), 
+            gridspec_kw={'height_ratios': [1, 1, 1, 2] if gt_available else None
+                         }  # last plot (conf matrix) gets more height
+        )
     axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
 
     if gt_available:
         metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, N_CLASSES)
         oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
-        
-        pred_title = ' '.join(['Predicted Mask:',
+        confusion_matrix = metric_dict['confusion_matrix']
+        pred_title = ' '.join(['Predicted Mask\n',
                     f'oAcc: {oAcc:.4f};',
                     f'mAcc: {mAcc:.4f};',
                     f'mIoU: {mIoU:.4f};',
@@ -60,7 +68,7 @@ def visualize_eval_output(img, true_mask, pred_mask, gt_available=True, output_p
         true_title = 'Ground Truth Mask (Not Available)'
 
     axs_img.imshow(img)
-    axs_img.set_title('Input Image')
+    axs_img.set_title(f'Input Image {input_channels_str}')
     axs_img.axis('off')
 
     # For masks, use a discrete colormap to distinguish classes
@@ -72,8 +80,31 @@ def visualize_eval_output(img, true_mask, pred_mask, gt_available=True, output_p
     axs_pred.set_title(pred_title)
     axs_pred.axis('off')
 
+    # Plot confusion matrix in axs_confmtx
+    if gt_available:
+        axs_confmtx = axs[3]
+        labels_map = {
+                    0: 'Void',
+                    1: 'Ground & Water',
+                    2: 'Stem',
+                    3: 'Canopy',
+                    4: 'Roots',
+                    5: 'Objects'
+                }
+        # sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx)
+        # axs_confmtx.set_title('Confusion Matrix')
+        # axs_confmtx.set_xlabel('Predicted Class')
+        # axs_confmtx.set_ylabel('True Class')
+        # axs_confmtx.set_xticklabels([f'{labels_map[i]}' for i in range(NUM_CLASSES)], rotation=45)
+        sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx, cbar=True)
+        axs_confmtx.set_title('Confusion Matrix')
+        axs_confmtx.set_xlabel('Predicted Class')
+        axs_confmtx.set_ylabel('True Class')
+        axs_confmtx.set_xticklabels([labels_map[i] for i in range(NUM_CLASSES)], rotation=30, ha='right')
+        axs_confmtx.set_yticklabels([labels_map[i] for i in range(NUM_CLASSES)], rotation=0)
+
+
     plt.tight_layout()
-    # plt.show()
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
     fig.savefig(output_path)
