@@ -14,11 +14,6 @@ import yaml
 from pprint import pprint
 from tools.get_mean_std import read_mean_std_from_yaml, normalize_img_per_channel
 
-PATCH_PER_IMAGE = 5
-# PATCH_HEIGHT = 544
-# PATCH_WIDTH = 256
-NUM_CLASSES = 6
-
 
 
 def pad_img_or_mask(arr):
@@ -91,15 +86,16 @@ class SegmentationPatchDataset(Dataset):
                  image_file_paths, 
                  mask_paths=None,  # Ground truth mask may not be available.
                  input_channels=None,
-                 patch_splits=PATCH_PER_IMAGE, 
+                 patch_splits=None, 
                  transform=None, 
-                 labels_map=None):
+                #  labels_map=None
+                 ):
         self.image_file_paths = image_file_paths
         self.input_channels = input_channels
         self.mask_paths = mask_paths
         self.patch_splits = patch_splits
         self.transform = transform
-        self.labels_map = labels_map
+        # self.labels_map = labels_map
         self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
         
@@ -215,7 +211,7 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
         return out
 
 
-def trasform_by_channls(input_channels:list, p=0.5, mean_std_dict=None):
+def trasform_by_channls(input_channels:list, p=0.5):
     """
     
     p: probability of applying the transform
@@ -250,9 +246,6 @@ def trasform_by_channls(input_channels:list, p=0.5, mean_std_dict=None):
         #                 0.229, 0.224, 0.225, 0.229, 0.224, 0.225,
         #                 0.229, 0.224, 0.225]
 
-    norm_mean = mean_std_dict['mean']
-    norm_std = mean_std_dict['std']
-
     transform = A.Compose([
         ChannelShuffleGroups(groups=shuffle_groups, p=p),
         A.HorizontalFlip(p=0.5),
@@ -270,19 +263,20 @@ def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, Data
     # Get image and mask paths
     image_file_path_dict, mask_path_dict = get_data_paths(config)
     num_workers = config['num_workers']
-    mean_std_yaml_file = Path(config['root_dir']) / config['mean_std_file']
-    mean_std_dict = read_mean_std_from_yaml(mean_std_yaml_file)
-    labels_map = {
-        0: 'Void',
-        1: 'Ground & Water',
-        2: 'Stem',
-        3: 'Canopy',
-        4: 'Roots',
-        5: 'Objects'
-    }
+    # mean_std_yaml_file = Path(config['root_dir']) / config['mean_std_file']
+    # mean_std_dict = read_mean_std_from_yaml(mean_std_yaml_file)
+    patches_per_image = config['patches_per_image']
+    # labels_map = {
+    #     0: 'Void',
+    #     1: 'Ground & Water',
+    #     2: 'Stem',
+    #     3: 'Canopy',
+    #     4: 'Roots',
+    #     5: 'Objects'
+    # }
 
     # ---- Define Albumentations transforms ----
-    train_transform = trasform_by_channls(input_channels=input_channels, p=0.5, mean_std_dict=mean_std_dict)
+    train_transform = trasform_by_channls(input_channels=input_channels)
 
     val_transform = A.Compose([
                                 # A.Normalize(
@@ -302,12 +296,12 @@ def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, Data
             image_file_paths=image_file_paths,
             input_channels=input_channels,
             mask_paths=mask_paths,
-            patch_splits=PATCH_PER_IMAGE,
+            patch_splits=patches_per_image,
             transform=train_transform if split == 'train' else val_transform,
-            labels_map=labels_map
+            # labels_map=labels_map
         )
 
-        bt_size = PATCH_PER_IMAGE if split == 'test' else config['train_batch_size']
+        bt_size = patches_per_image if split == 'test' else config['train_batch_size']
         dataloaders[split] = DataLoader(dataset, 
                                         batch_size=bt_size, 
                                         shuffle=True if split == 'train' else False, 
@@ -322,7 +316,7 @@ def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, Data
 
 
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine.json'
+    config_file = 'params/paths_zmachine_inlut3d.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
     

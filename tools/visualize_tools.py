@@ -1,5 +1,4 @@
 import matplotlib.pyplot as plt
-from prepare_dataset import NUM_CLASSES
 from tools.load_tools import custom_cmap, get_pil_palette
 from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
 import datetime
@@ -31,11 +30,17 @@ def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
     print(f"🎨Color mask saved to {color_path}")
 
 
-def visualize_eval_output(img, true_mask, pred_mask, input_channels, gt_available=True, output_path: Path = None):
+def visualize_eval_output(img, 
+                          true_mask, 
+                          pred_mask, 
+                          input_channels, 
+                          num_classes,
+                          label_map=None,
+                          gt_available=True, 
+                          output_path: Path = None):
     """"
     Visualize the image and masks.
     """
-    N_CLASSES = 6
     input_channels_str = '_'.join([str(ch) for ch in input_channels])
 
     # Compute metrics between true_mask and pred_mask
@@ -53,7 +58,7 @@ def visualize_eval_output(img, true_mask, pred_mask, input_channels, gt_availabl
     axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
 
     if gt_available:
-        metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, N_CLASSES)
+        metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, num_classes)
         oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
         confusion_matrix = metric_dict['confusion_matrix']
         pred_title = ' '.join(['Predicted Mask\n',
@@ -72,36 +77,36 @@ def visualize_eval_output(img, true_mask, pred_mask, input_channels, gt_availabl
     axs_img.axis('off')
 
     # For masks, use a discrete colormap to distinguish classes
-    axs_true.imshow(true_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
+    axs_true.imshow(true_mask, cmap=custom_cmap(), vmin=0, vmax=num_classes - 1, interpolation='nearest')
     axs_true.set_title(true_title)
     axs_true.axis('off')
 
-    axs_pred.imshow(pred_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
+    axs_pred.imshow(pred_mask, cmap=custom_cmap(), vmin=0, vmax=num_classes - 1, interpolation='nearest')
     axs_pred.set_title(pred_title)
     axs_pred.axis('off')
 
     # Plot confusion matrix in axs_confmtx
     if gt_available:
         axs_confmtx = axs[3]
-        labels_map = {
-                    0: 'Void',
-                    1: 'Ground & Water',
-                    2: 'Stem',
-                    3: 'Canopy',
-                    4: 'Roots',
-                    5: 'Objects'
-                }
-        # sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx)
-        # axs_confmtx.set_title('Confusion Matrix')
-        # axs_confmtx.set_xlabel('Predicted Class')
-        # axs_confmtx.set_ylabel('True Class')
-        # axs_confmtx.set_xticklabels([f'{labels_map[i]}' for i in range(NUM_CLASSES)], rotation=45)
+        # label_map = {
+        #             0: 'Void',
+        #             1: 'Ground & Water',
+        #             2: 'Stem',
+        #             3: 'Canopy',
+        #             4: 'Roots',
+        #             5: 'Objects'
+        #         }
+        # # sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx)
+        # # axs_confmtx.set_title('Confusion Matrix')
+        # # axs_confmtx.set_xlabel('Predicted Class')
+        # # axs_confmtx.set_ylabel('True Class')
+        # # axs_confmtx.set_xticklabels([f'{label_map[i]}' for i in range(num_classes)], rotation=45)
         sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx, cbar=True)
         axs_confmtx.set_title('Confusion Matrix')
         axs_confmtx.set_xlabel('Predicted Class')
         axs_confmtx.set_ylabel('True Class')
-        axs_confmtx.set_xticklabels([labels_map[i] for i in range(NUM_CLASSES)], rotation=30, ha='right')
-        axs_confmtx.set_yticklabels([labels_map[i] for i in range(NUM_CLASSES)], rotation=0)
+        # axs_confmtx.set_xticklabels([label_map[i] for i in range(num_classes)], rotation=30, ha='right')
+        # axs_confmtx.set_yticklabels([label_map[i] for i in range(num_classes)], rotation=0)
 
 
     plt.tight_layout()

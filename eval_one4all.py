@@ -1,6 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
-from prepare_dataset import load_data, depad_img_or_mask, PATCH_PER_IMAGE
+from prepare_dataset import load_data, depad_img_or_mask
 from training_one4all import build_model_for_multi_channels
 import json
 from pathlib import Path
@@ -10,13 +10,13 @@ from tools.visualize_tools import visualize_eval_output
 from tools.metrics_tools import calculate_segmentation_statistics
 import time
 import numpy as np
-from tools.load_tools import dump_dict_to_yaml
+from tools.load_tools import dump_dict_to_yaml, config
 from tools.logger_setup import Logger
 import re
 
 log = Logger()
-INPUT_RESOLUTION = (540, 1440)  # (H, W)
-N_CLASSES = 6
+# INPUT_RESOLUTION = (540, 1440)  # (H, W)
+# N_CLASSES = 6
 
 def load_model(config: dict, input_channels:list, model_name: str, device: str) -> smp.Unet:
     """
@@ -39,7 +39,8 @@ def load_model(config: dict, input_channels:list, model_name: str, device: str) 
     if model_file.exists():
         model = build_model_for_multi_channels(model_name=model_name,
                                            encoder_name=config['encoder_name'],
-                                            in_channels=len(input_channels))
+                                            in_channels=len(input_channels),
+                                            num_classes=config['num_classes'])
         model.load_state_dict(torch.load(model_file, weights_only=True))
         log.info(f"======Loaded model from disk: {model_file.stem}.pth.======")
     else:
@@ -52,12 +53,15 @@ def load_model(config: dict, input_channels:list, model_name: str, device: str) 
 
 
 
-def evaluate_single_img(imgs, true_masks, config, 
-             input_channels: list,
-             model_name: str,
-             gt_available: bool,
-             output_path: Path,
-             show_now=False):
+def evaluate_single_img(imgs, 
+                        true_masks, 
+                        config, 
+                        input_channels: list,
+                        model_name: str,
+                        label_map: dict,
+                        gt_available: bool,
+                        output_path: Path,
+                        show_now=False):
     """
     Evaluate the model on the test set.
 
@@ -66,6 +70,9 @@ def evaluate_single_img(imgs, true_masks, config,
         device (str): Device to run the evaluation on.
     """
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    num_classes = config['num_classes']
+    input_size = config['input_size']
+    patches_per_image = config['patches_per_image']
     model = load_model(config, input_channels, model_name, device)
     
     imgs = imgs.to(device)                  # (N, C, H, W)
@@ -90,7 +97,7 @@ def evaluate_single_img(imgs, true_masks, config,
     
     # -----Depad the images and masks.--------------
     # Depad the images and masks to the original size.
-    input_patch_size = (INPUT_RESOLUTION[0], INPUT_RESOLUTION[1] // PATCH_PER_IMAGE)
+    input_patch_size = (input_size[0], input_size[1] // patches_per_image)
     imgs_reshaped = [depad_img_or_mask(img.permute(1, 2, 0).numpy(), input_patch_size) for img in imgs]
     true_masks = [depad_img_or_mask(mask, input_patch_size) for mask in true_masks]
     pred_masks = [depad_img_or_mask(mask, input_patch_size) for mask in pred_masks]
@@ -107,6 +114,8 @@ def evaluate_single_img(imgs, true_masks, config,
     visualize_eval_output(combined_img, 
                           combined_true_mask, 
                           combined_pred_mask,
+                          num_classes = num_classes,
+                          label_map = label_map,
                           input_channels = input_channels,
                           output_path = output_path,
                           gt_available = gt_available) 
@@ -121,10 +130,17 @@ def evaluate_single_img(imgs, true_masks, config,
 
 def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet'):
     show_now = config['eval_imshow']
+    num_classes = config['num_classes']
     _, _, test_loader = load_data(config, input_channels)
     channels_str = '_'.join([str(ch) for ch in input_channels])
     test_img_idx_ls = config['test_img_idx_ls'] 
     eval_gt_available_ls = config['eval_gt_available_ls']
+    label_file = Path(config['root_dir']) / config['label_file']
+    with open(label_file, 'r') as f:
+        label_json = json.load(f)
+
+    label_map = {label_dict['code']:label_dict["label"] for label_dict in label_json}
+    label_map = {k: v for k, v in label_map.items() if k <18}
     assert len(test_img_idx_ls) == len(eval_gt_available_ls), "The lengths of test_img_idx_ls and eval_gt_available_ls must be the same."
 
     true_mask_ls = []
@@ -139,12 +155,15 @@ def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet')
         out_dir = Path(config['root_dir']) / 'outputs' / model_name / key_str
         out_dir.mkdir(parents=True, exist_ok=True)
         eval_img_output_path = out_dir / f'combined_output_{key_str}_{channels_str}_{timestamp}.png'
-        combined_true_mask, combined_pred_mask = evaluate_single_img(imgs, true_masks, config, 
-                                                            input_channels,
-                                                            model_name,
-                                                          eval_gt_available, 
-                                                          eval_img_output_path, 
-                                                          show_now=show_now)  
+        combined_true_mask, combined_pred_mask = evaluate_single_img(imgs, 
+                                                                     true_masks, 
+                                                                     config, 
+                                                                    input_channels,
+                                                                    model_name,
+                                                                    label_map,
+                                                                eval_gt_available, 
+                                                                eval_img_output_path, 
+                                                                show_now=show_now)  
         
         true_mask_ls.append(combined_true_mask.flatten())
         pred_mask_ls.append(combined_pred_mask.flatten())
@@ -153,16 +172,16 @@ def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet')
     true_mask = np.concatenate(true_mask_ls) 
     pred_mask = np.concatenate(pred_mask_ls)
 
-    metric_dict = calculate_segmentation_statistics(true_mask, pred_mask, N_CLASSES)
+    metric_dict = calculate_segmentation_statistics(true_mask, pred_mask, num_classes)
     output_file = out_dir.parent / f"eval_metrics_{channels_str}_{timestamp}.yaml"
     dump_dict_to_yaml(metric_dict, output_file)
 
 
 
 def main():
-    config_file = 'params/paths_zmachine.json'
-    with open(config_file, 'r') as f:
-        config = json.load(f)
+    # config_file = 'params/paths_zmachine_inlut3d.json'
+    # with open(config_file, 'r') as f:
+    #     config = json.load(f)
 
     input_channels_ls = config['input_channels_ls']
     model_name_ls = config['model_name_ls']

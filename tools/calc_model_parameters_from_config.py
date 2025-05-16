@@ -13,7 +13,9 @@ pprint(config)
 
 model = build_model_for_multi_channels(
         model_name=config['model_name'],
-        encoder_name=config['encoder_name']
+        encoder_name=config['encoder_name'],
+        num_classes=config['num_classes'],
+        in_channels=config['in_channels'],
     )
 model_dir = Path(config['root_dir']) / config['model_dir'] / config['model_name']
 model_file = model_dir / config['model_file']

@@ -2,7 +2,7 @@ import gc
 import copy
 import segmentation_models_pytorch as smp
 import torch
-from prepare_dataset import load_data, NUM_CLASSES
+from prepare_dataset import load_data
 import torch.nn as nn
 from pathlib import Path
 import json
@@ -68,7 +68,7 @@ def expand_first_conv_to_multi_channels(model, expand_channels=6):
 
 
 
-def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_channels=3):
+def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_channels=3, num_classes=5):
 
     if model_name == 'unetpp':
         model_class = smp.UnetPlusPlus
@@ -106,7 +106,7 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_chann
         encoder_name=encoder_name,
         encoder_weights="imagenet",
         in_channels=3,   # SMP default (RGB)
-        classes=NUM_CLASSES
+        classes=num_classes
     )
 
     if in_channels > 3:
@@ -124,13 +124,15 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
     model = build_model_for_multi_channels(
         model_name=model_name,
         encoder_name=config['encoder_name'],
-        in_channels=len(input_channels)
+        in_channels=len(input_channels),
+        num_classes=config['num_classes']
     )
     pretrained_epoch = 0
     stop_early = config['stop_early']
     dummy_shape = list(next(iter(test_loader))[0].shape)
     epoch_num = config['epoch_num']
     channel_info_str = '_'.join([str(ch) for ch in input_channels])
+    num_classes = config['num_classes']
     # If loading from a pretrained model
     if pretrained_model_source:
         model_dir = Path(config['root_dir']) / config['model_dir'] / model_name
@@ -200,7 +202,7 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
         # Compute train metrics
         y_true_flat = np.concatenate(y_true_train)
         y_pred_flat = np.concatenate(y_pred_train)
-        train_oAccu, train_mIoU = calc_oAccu_mIoU(y_true_flat, y_pred_flat, NUM_CLASSES)
+        train_oAccu, train_mIoU = calc_oAccu_mIoU(y_true_flat, y_pred_flat, num_classes)
         train_oAccus.append(train_oAccu)
         train_mIoUs.append(train_mIoU)
 
@@ -230,7 +232,7 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
         # Compute val metrics
         y_true_flat = np.concatenate(y_true_val)
         y_pred_flat = np.concatenate(y_pred_val)
-        val_oAccu, val_mIoU = calc_oAccu_mIoU(y_true_flat, y_pred_flat, NUM_CLASSES)
+        val_oAccu, val_mIoU = calc_oAccu_mIoU(y_true_flat, y_pred_flat, num_classes)
         val_oAccus.append(val_oAccu)
         val_mIoUs.append(val_mIoU)
 
@@ -319,7 +321,7 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
 
 
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine.json'
+    config_file = 'params/paths_zmachine_inlut3d.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
     log.info(pformat(config))

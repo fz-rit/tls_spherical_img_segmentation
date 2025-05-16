@@ -7,15 +7,15 @@ import yaml
 from pathlib import Path
 import numpy as np
 
-config_file = 'params/paths_zmachine.json'
+config_file = 'params/paths_zmachine_inlut3d.json'
 with open(config_file, 'r') as f:
     config = json.load(f)
 
 
-def checkout_class_freq(config):
+def checkout_class_freq(config, num_classes = 5):
     train_dataset, _, _ = load_data(config)
     labels_map = train_dataset.labels_map
-    num_classes = 5
+    
 
     all_labels = []
     for img_patch, mask_patch in train_dataset:

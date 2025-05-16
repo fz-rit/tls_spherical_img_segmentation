@@ -28,6 +28,8 @@
     "num_workers": 10,
     "mean_std_file": "mean_std_0_1_2.yaml",
     "encoder_name": "resnext50_32x4d",
+    "num_classes": 6,
+    "patches_per_image": 5,
     "train_batch_size": 5,
     "epoch_num": 100,
     "model_save_interval": 40,
