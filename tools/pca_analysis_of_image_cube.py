@@ -4,7 +4,7 @@ import os
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from tools.load_tools import config
+from tools.load_tools import CONFIG
 from tools.metrics_tools import compute_band_correlation, compute_pca_components, compute_mnf, compute_ica
 from tools.visualize_tools import plot_correlation_matrix, plot_pca_components, plot_rgb_permutations
 from pathlib import Path
@@ -13,7 +13,7 @@ from prepare_dataset import load_image_cube_and_metadata
 import matplotlib.pyplot as plt
 from PIL import Image
 
-image_cube_path = Path(config['root_dir']) / config['image_dir'] / 'SICK_1642331006_image_cube.npy'
+image_cube_path = Path(CONFIG['root_dir']) / CONFIG['image_dir'] / 'SICK_1642331006_image_cube.npy'
 image_meta_path = image_cube_path.parent / 'SICK_1642331006_image_cube_metadata.json'
 
 output_stem = image_cube_path.stem

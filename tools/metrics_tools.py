@@ -81,8 +81,9 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
     """
     Calculate evaluation metrics for semantic segmentation.
     """
-    conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+    original_conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
 
+    conf_mtx = original_conf_mtx.copy()
     # Keep only the classes that appear in either true or pred
     mask = (conf_mtx.sum(axis=0) + conf_mtx.sum(axis=1)) > 0
     conf_mtx = conf_mtx[mask][:, mask]
@@ -110,7 +111,7 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
     dice_coefficient = np.nanmean(dice)
 
     return {
-        'confusion_matrix': conf_mtx,
+        'confusion_matrix': original_conf_mtx,
         'oAcc': oAccu,
         'mAcc': mAcc,
         'mIoU': mIoU,

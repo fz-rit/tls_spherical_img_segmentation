@@ -2,7 +2,7 @@ import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, load_image_cube_and_metadata
 from backup.training import train_unet
-from tools.load_tools import calc_metrics, custom_cmap
+from tools.load_tools import calc_metrics, get_color_map
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
@@ -83,11 +83,11 @@ def visualize_eval_output(imgs, true_masks, pred_masks, output_path: Path = None
         axs_img.axis('off')
 
         # For masks, use a discrete colormap to distinguish classes
-        axs_true.imshow(true_mask, cmap=custom_cmap(), interpolation='nearest')
+        axs_true.imshow(true_mask, cmap=get_color_map(), interpolation='nearest')
         axs_true.set_title('Ground Truth Mask')
         axs_true.axis('off')
 
-        axs_pred.imshow(pred_mask, cmap=custom_cmap(), interpolation='nearest')
+        axs_pred.imshow(pred_mask, cmap=get_color_map(), interpolation='nearest')
         axs_pred.set_title(pred_title)
         axs_pred.axis('off')
 

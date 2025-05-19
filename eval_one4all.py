@@ -10,13 +10,11 @@ from tools.visualize_tools import visualize_eval_output
 from tools.metrics_tools import calculate_segmentation_statistics
 import time
 import numpy as np
-from tools.load_tools import dump_dict_to_yaml, config
+from tools.load_tools import dump_dict_to_yaml, CONFIG
 from tools.logger_setup import Logger
 import re
 
 log = Logger()
-# INPUT_RESOLUTION = (540, 1440)  # (H, W)
-# N_CLASSES = 6
 
 def load_model(config: dict, input_channels:list, model_name: str, device: str) -> smp.Unet:
     """
@@ -58,7 +56,6 @@ def evaluate_single_img(imgs,
                         config, 
                         input_channels: list,
                         model_name: str,
-                        label_map: dict,
                         gt_available: bool,
                         output_path: Path,
                         show_now=False):
@@ -115,7 +112,6 @@ def evaluate_single_img(imgs,
                           combined_true_mask, 
                           combined_pred_mask,
                           num_classes = num_classes,
-                          label_map = label_map,
                           input_channels = input_channels,
                           output_path = output_path,
                           gt_available = gt_available) 
@@ -135,12 +131,8 @@ def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet')
     channels_str = '_'.join([str(ch) for ch in input_channels])
     test_img_idx_ls = config['test_img_idx_ls'] 
     eval_gt_available_ls = config['eval_gt_available_ls']
-    label_file = Path(config['root_dir']) / config['label_file']
-    with open(label_file, 'r') as f:
-        label_json = json.load(f)
-
-    label_map = {label_dict['code']:label_dict["label"] for label_dict in label_json}
-    label_map = {k: v for k, v in label_map.items() if k <18}
+    
+    
     assert len(test_img_idx_ls) == len(eval_gt_available_ls), "The lengths of test_img_idx_ls and eval_gt_available_ls must be the same."
 
     true_mask_ls = []
@@ -160,7 +152,6 @@ def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet')
                                                                      config, 
                                                                     input_channels,
                                                                     model_name,
-                                                                    label_map,
                                                                 eval_gt_available, 
                                                                 eval_img_output_path, 
                                                                 show_now=show_now)  
@@ -179,17 +170,13 @@ def evaluate_model(config: dict, input_channels: list, model_name: str = 'unet')
 
 
 def main():
-    # config_file = 'params/paths_zmachine_inlut3d.json'
-    # with open(config_file, 'r') as f:
-    #     config = json.load(f)
-
-    input_channels_ls = config['input_channels_ls']
-    model_name_ls = config['model_name_ls']
+    input_channels_ls = CONFIG['input_channels_ls']
+    model_name_ls = CONFIG['model_name_ls']
     for model_name in model_name_ls:
         for input_channels in input_channels_ls:
-            assert input_channels in config['input_channels_ls'], f"Input channel {input_channels} not found in the list of input channels."
+            assert input_channels in CONFIG['input_channels_ls'], f"Input channel {input_channels} not found in the list of input channels."
             log.info(f"Input channels: {input_channels}")
-            evaluate_model(config, input_channels, model_name)
+            evaluate_model(CONFIG, input_channels, model_name)
 
 
 

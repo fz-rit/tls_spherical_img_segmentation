@@ -2,10 +2,10 @@
 import logging
 import time
 from pathlib import Path
-from tools.load_tools import config
+from tools.load_tools import CONFIG
 
 time_str = time.strftime("%Y-%m-%d_%H-%M", time.localtime())
-log_path = Path(config['root_dir']) / f"log_output_{'_'.join(config['model_name_ls'])}_{time_str}.log"
+log_path = Path(CONFIG['root_dir']) / f"log_output_{'_'.join(CONFIG['model_name_ls'])}_{time_str}.log"
 
 class Logger:
     _instance = None  # Singleton to avoid reinitialization

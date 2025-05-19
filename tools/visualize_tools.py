@@ -1,5 +1,5 @@
 import matplotlib.pyplot as plt
-from tools.load_tools import custom_cmap, get_pil_palette
+from tools.load_tools import get_color_map, get_pil_palette, get_label_map
 from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
 import datetime
 from pathlib import Path
@@ -8,6 +8,7 @@ import numpy as np
 import matplotlib.gridspec as gridspec
 import seaborn as sns
 from matplotlib.cm import get_cmap
+import matplotlib.colors as colors
 
 
 def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
@@ -35,7 +36,6 @@ def visualize_eval_output(img,
                           pred_mask, 
                           input_channels, 
                           num_classes,
-                          label_map=None,
                           gt_available=True, 
                           output_path: Path = None):
     """"
@@ -51,8 +51,8 @@ def visualize_eval_output(img,
     # fig, axs = plt.subplots(num_subplots, 1, figsize=(10, 6))
     fig, axs = plt.subplots(
             num_subplots, 1, 
-            figsize=(8, 10), 
-            gridspec_kw={'height_ratios': [1, 1, 1, 2] if gt_available else None
+            figsize=(14, 18), 
+            gridspec_kw={'height_ratios': [1, 1, 1, 3] if gt_available else None
                          }  # last plot (conf matrix) gets more height
         )
     axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
@@ -75,38 +75,31 @@ def visualize_eval_output(img,
     axs_img.imshow(img)
     axs_img.set_title(f'Input Image {input_channels_str}')
     axs_img.axis('off')
-
+    color_map = get_color_map()[0]
     # For masks, use a discrete colormap to distinguish classes
-    axs_true.imshow(true_mask, cmap=custom_cmap(), vmin=0, vmax=num_classes - 1, interpolation='nearest')
+    axs_true.imshow(true_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
     axs_true.set_title(true_title)
     axs_true.axis('off')
 
-    axs_pred.imshow(pred_mask, cmap=custom_cmap(), vmin=0, vmax=num_classes - 1, interpolation='nearest')
+    axs_pred.imshow(pred_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
     axs_pred.set_title(pred_title)
     axs_pred.axis('off')
 
     # Plot confusion matrix in axs_confmtx
     if gt_available:
         axs_confmtx = axs[3]
-        # label_map = {
-        #             0: 'Void',
-        #             1: 'Ground & Water',
-        #             2: 'Stem',
-        #             3: 'Canopy',
-        #             4: 'Roots',
-        #             5: 'Objects'
-        #         }
-        # # sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx)
-        # # axs_confmtx.set_title('Confusion Matrix')
-        # # axs_confmtx.set_xlabel('Predicted Class')
-        # # axs_confmtx.set_ylabel('True Class')
-        # # axs_confmtx.set_xticklabels([f'{label_map[i]}' for i in range(num_classes)], rotation=45)
-        sns.heatmap(confusion_matrix, annot=True, fmt='d', cmap='Blues', ax=axs_confmtx, cbar=True)
+        label_map = get_label_map()
+        sns.heatmap(confusion_matrix, 
+                    annot=True, 
+                    fmt='d', 
+                    cmap='rainbow', 
+                    ax=axs_confmtx, 
+                    cbar=True)
         axs_confmtx.set_title('Confusion Matrix')
         axs_confmtx.set_xlabel('Predicted Class')
         axs_confmtx.set_ylabel('True Class')
-        # axs_confmtx.set_xticklabels([label_map[i] for i in range(num_classes)], rotation=30, ha='right')
-        # axs_confmtx.set_yticklabels([label_map[i] for i in range(num_classes)], rotation=0)
+        axs_confmtx.set_xticklabels([label_map[i] for i in range(num_classes)], rotation=30, ha='right')
+        axs_confmtx.set_yticklabels([label_map[i] for i in range(num_classes)], rotation=0)
 
 
     plt.tight_layout()

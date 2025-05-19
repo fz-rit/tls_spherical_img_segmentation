@@ -9,7 +9,7 @@ import json
 import numpy as np
 from tools.metrics_tools import calc_oAccu_mIoU
 from tools.visualize_tools import plot_training_validation_losses, plot_training_validation_metrics
-from tools.load_tools import save_model_locally, dump_dict_to_yaml
+from tools.load_tools import save_model_locally, dump_dict_to_yaml, CONFIG
 import time
 from pprint import pformat
 from tools.earlystopping import EarlyStopping
@@ -321,16 +321,16 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
 
 
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine_inlut3d.json'
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-    log.info(pformat(config))
-    input_channels_ls = config['input_channels_ls']
-    model_name_ls = config['model_name_ls']
+    # config_file = 'params/paths_zmachine_inlut3d.json'
+    # with open(config_file, 'r') as f:
+    #     CONFIG = json.load(f)
+    log.info(pformat(CONFIG))
+    input_channels_ls = CONFIG['input_channels_ls']
+    model_name_ls = CONFIG['model_name_ls']
     for model_name in model_name_ls:
         for input_channels in input_channels_ls:
             log.info(f"✈️ Training {model_name} with input channels: {input_channels}")
-            train_model(config, 
+            train_model(CONFIG, 
                         input_channels=input_channels, 
                         model_name= model_name, 
                         pretrained_model_source=False, save_model=True)

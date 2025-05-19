@@ -9,7 +9,7 @@ import numpy as np
 
 config_file = 'params/paths_zmachine_inlut3d.json'
 with open(config_file, 'r') as f:
-    config = json.load(f)
+    CONFIG = json.load(f)
 
 
 def checkout_class_freq(config, num_classes = 5):
@@ -45,30 +45,37 @@ def checkout_class_freq(config, num_classes = 5):
 
 
 
-def custom_cmap():
-    color_list = [
-                    [0.0, 0.0, 0.0],           # index 0
-                    [0.502, 0.0, 0.502],       # index 1
-                    [0.647, 0.165, 0.165],     # index 2
-                    [0.0, 0.502, 0.0],         # index 3
-                    [1.0, 0.647, 0.0],         # index 4
-                    [1.0, 1.0, 0.0]            # index 5
-                ]
+# def get_color_map():
+#     color_list = [
+#                     [0.0, 0.0, 0.0],           # index 0
+#                     [0.502, 0.0, 0.502],       # index 1
+#                     [0.647, 0.165, 0.165],     # index 2
+#                     [0.0, 0.502, 0.0],         # index 3
+#                     [1.0, 0.647, 0.0],         # index 4
+#                     [1.0, 1.0, 0.0]            # index 5
+#                 ]
 
 
+#     custom_cmap = ListedColormap(color_list)
+#     return custom_cmap
+
+def get_color_map():
+    label_file = Path(CONFIG['root_dir']) / CONFIG['label_file']
+    with open(label_file, 'r') as f:
+        label_json = json.load(f)
+    color_map = {label_dict['code']:label_dict["color"] for label_dict in label_json}
+    color_map = {k: v for k, v in color_map.items() if k <18}
+    scale = 1/255 if type(color_map[0][0]) == int and any([ci>1 for ci in color_map[1]]) else 1
+    color_list = []
+    for i in range(len(color_map)):
+        color_ls = [(color_map[i][j] * scale) for j in range(3)]
+        color_list.append(color_ls)
     custom_cmap = ListedColormap(color_list)
-    return custom_cmap
+    return custom_cmap, color_list
 
 
 def get_pil_palette():
-    color_list = [
-        [0.0, 0.0, 0.0],           # black
-        [0.502, 0.0, 0.502],       # purple
-        [0.647, 0.165, 0.165],     # brown
-        [0.0, 0.502, 0.0],         # green
-        [1.0, 0.647, 0.0],         # orange
-        [1.0, 1.0, 0.0]            # yellow
-    ]
+    color_list = get_color_map()[1]
 
     # Convert to 0–255 and flatten
     flat_palette = [int(x * 255) for rgb in color_list for x in rgb]
@@ -78,6 +85,15 @@ def get_pil_palette():
 
     return flat_palette
 
+
+def get_label_map():
+    label_file = Path(CONFIG['root_dir']) / CONFIG['label_file']
+    with open(label_file, 'r') as f:
+        label_json = json.load(f)
+
+    label_map = {label_dict['code']:label_dict["label"] for label_dict in label_json}
+    label_map = {k: v for k, v in label_map.items() if k <18}
+    return label_map
 
 
 def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):

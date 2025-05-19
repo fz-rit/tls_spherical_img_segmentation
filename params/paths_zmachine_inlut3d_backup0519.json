@@ -3,11 +3,18 @@
     "train_val_test_split_file": "concrete_paths_inlut3d.yaml",
     "label_file": "labels.json",
     "input_channels_ls": [
-        [0, 1, 2]
+        [0, 1, 2],
+        [3, 4, 5],
+        [6, 7, 8],
+        [9, 10, 11],
+        [12, 13, 14],
+        [15, 16, 17],
+        [18, 19, 20]
     ],
     "model_dir": "models",
-    "model_name_ls": ["unet"],
+    "model_name_ls": ["unet", "unetpp", "fpn", "segformer", "deeplabv3"],
     "num_workers": 10,
+    "mean_std_file": "mean_std_0_1_2.yaml",
     "encoder_name": "resnext50_32x4d",
     "input_size": [512, 2048],
     "patches_per_image": 8,
