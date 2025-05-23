@@ -249,7 +249,7 @@ def trasform_by_channls(input_channels:list, p=0.5):
     transform = A.Compose([
         ChannelShuffleGroups(groups=shuffle_groups, p=p),
         A.HorizontalFlip(p=0.5),
-        A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=10, p=0.5),
+        A.Affine(translate_percent=0.0625, scale=(1 - 0.15, 1 + 0.15), rotate=(-10, 10), p=0.5),
         # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
         # A.Normalize(mean=norm_mean, std=norm_std),  ## Due to the distribution difference, training without normalization is better.
         A.pytorch.ToTensorV2()
@@ -338,4 +338,6 @@ if __name__ == "__main__":
     imgs, masks = next(iter(test_loader))
     print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
     
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
     

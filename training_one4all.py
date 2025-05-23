@@ -321,9 +321,7 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
 
 
 if __name__ == "__main__":
-    # config_file = 'params/paths_zmachine_inlut3d.json'
-    # with open(config_file, 'r') as f:
-    #     CONFIG = json.load(f)
+
     log.info(pformat(CONFIG))
     input_channels_ls = CONFIG['input_channels_ls']
     model_name_ls = CONFIG['model_name_ls']
