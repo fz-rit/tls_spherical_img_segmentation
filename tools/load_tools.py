@@ -7,7 +7,7 @@ import yaml
 from pathlib import Path
 import numpy as np
 
-config_file = 'params/paths_zmachine_inlut3d.json'
+config_file = 'params/paths_zmachine_pama3d.json'
 with open(config_file, 'r') as f:
     CONFIG = json.load(f)
 
