@@ -98,7 +98,7 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
 
     # IoU
     union = conf_mtx.sum(axis=1) + conf_mtx.sum(axis=0) - intersection
-    IoU = intersection / np.maximum(union, 1)
+    IoU = np.round(intersection / np.maximum(union, 1),  4)
     mIoU = np.nanmean(IoU)
 
     # Frequency Weighted IoU
@@ -112,12 +112,12 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
 
     return {
         'confusion_matrix': original_conf_mtx,
-        'oAcc': oAccu,
-        'mAcc': mAcc,
-        'mIoU': mIoU,
+        'oAcc': round(oAccu, 4),
+        'mAcc': round(mAcc, 4),
+        'mIoU': round(mIoU, 4),
         'IoU_per_class': IoU,
-        'FWIoU': FWIoU,
-        'dice_coefficient': dice_coefficient
+        'FWIoU': round(FWIoU, 4),
+        'dice_coefficient': round(dice_coefficient, 4)
     }
 
 
@@ -162,7 +162,7 @@ def compute_band_correlation(image):
     if image.ndim != 3:
         raise ValueError("Input image must have 3 dimensions (C, H, W)")
 
-    C, H, W = image.shape
+    C = image.shape[0]
     reshaped = image.reshape(C, -1)  # Flatten spatial dimensions
     corr_matrix = np.corrcoef(reshaped)
 

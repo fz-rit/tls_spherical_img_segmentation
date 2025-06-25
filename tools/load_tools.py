@@ -35,30 +35,6 @@ def checkout_class_freq(config, num_classes = 5):
 
 
 
-# Class Frequencies:
-# Class 0-Void: 23.98% of pixels
-# Class 1-Miscellaneous: 2.34% of pixels
-# Class 2-Leaves: 36.00% of pixels
-# Class 3-Bark: 21.54% of pixels
-# Class 4-Soil: 16.14% of pixels
-
-
-
-
-# def get_color_map():
-#     color_list = [
-#                     [0.0, 0.0, 0.0],           # index 0
-#                     [0.502, 0.0, 0.502],       # index 1
-#                     [0.647, 0.165, 0.165],     # index 2
-#                     [0.0, 0.502, 0.0],         # index 3
-#                     [1.0, 0.647, 0.0],         # index 4
-#                     [1.0, 1.0, 0.0]            # index 5
-#                 ]
-
-
-#     custom_cmap = ListedColormap(color_list)
-#     return custom_cmap
-
 def get_color_map():
     label_file = Path(CONFIG['root_dir']) / CONFIG['label_file']
     with open(label_file, 'r') as f:
@@ -75,12 +51,11 @@ def get_color_map():
 
 
 def get_pil_palette():
+    """
+    Get a flat palette for PIL Image from the color map.
+    """
     color_list = get_color_map()[1]
-
-    # Convert to 0–255 and flatten
     flat_palette = [int(x * 255) for rgb in color_list for x in rgb]
-
-    # Pad with zeros to length 768 (PIL expects full 256 colors x 3 channels)
     flat_palette += [0] * (768 - len(flat_palette))
 
     return flat_palette
@@ -96,7 +71,7 @@ def get_label_map():
     return label_map
 
 
-def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):
+def save_model_locally(model, model_dir, model_name_prefix, dummy_shape, save_onnx=False):
     model_dir.mkdir(parents=True, exist_ok=True)
     print(f"----Created directory {model_dir}----")
 
@@ -104,20 +79,21 @@ def save_model_locally(model, model_dir, model_name_prefix, dummy_shape):
     torch.save(model.state_dict(), save_model_path)
     print(f"----Model saved at {save_model_path}----")
 
-    onnx_model_path = model_dir / f'{model_name_prefix}.onnx'
-
-    # Create a dummy input with the same shape as your input
-    dummy_input = torch.randn(dummy_shape).to('cuda')  # replace H, W as needed
-    torch.onnx.export(
-        model, 
-        dummy_input, 
-        onnx_model_path,
-        input_names=["input"],
-        output_names=["output"],
-        opset_version=11,  # common version; increase if needed
-        do_constant_folding=True
-    )
-    print(f"----ONNX model saved at {onnx_model_path}----")
+    
+    if save_onnx:
+        # Create a dummy input with the same shape as your input
+        dummy_input = torch.randn(dummy_shape).to('cuda')
+        onnx_model_path = model_dir / f'{model_name_prefix}.onnx'
+        torch.onnx.export(
+            model, 
+            dummy_input, 
+            onnx_model_path,
+            input_names=["input"],
+            output_names=["output"],
+            opset_version=11,
+            do_constant_folding=True
+        )
+        print(f"----ONNX model saved at {onnx_model_path}----")
 
 
 def dump_dict_to_yaml(dict_obj, output_path: Path):
@@ -142,3 +118,7 @@ def dump_dict_to_yaml(dict_obj, output_path: Path):
     with open(output_path, 'w') as f:
         yaml.dump(dict_obj, f)
     print(f"Evaluation metrics saved to {output_path}")
+
+if __name__ == "__main__":
+    config = CONFIG
+    print(config['ensemble_config'])

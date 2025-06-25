@@ -12,7 +12,7 @@ import json
 import yaml
 from pprint import pprint
 from tools.get_mean_std import normalize_img_per_channel
-from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split
 
 def collect_image_mask_pairs(img_dir: Path, mask_dir: Path) -> Tuple[List[Path], List[Path]]:
     img_paths = sorted(img_dir.glob("*.npy"))
@@ -125,7 +125,6 @@ class SegmentationPatchDataset(Dataset):
 
         image_patch, mask_patch = pad_img_and_mask(image_patch, mask_patch)
 
-        # Apply Albumentations transform if provided
         if self.transform:
             transformed = self.transform(image=image_patch, mask=mask_patch)
             image_patch = transformed["image"]  # shape: (C, H, W) after ToTensorV2
@@ -157,10 +156,8 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
         out = img.copy()
 
         for group in self.groups:
-            # Create a random permutation of the channel indices in this group.
             shuffled = np.random.permutation(group)
 
-            # Assign them back in place:
             for old_ch, new_ch in zip(group, shuffled):
                 out[:, :, old_ch] = img[:, :, new_ch]
 
@@ -194,30 +191,29 @@ def trasform_by_channls(input_channels:list, p=0.5):
 
 
 
-def load_data(config, input_channels=None, fold_idx=0) -> Tuple[DataLoader, DataLoader, DataLoader]:
-    assert 0 <= fold_idx < 5, f"fold_idx {fold_idx} should have been in [0, 4]"
+def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, DataLoader]:
 
     root_dir = Path(config["root_dir"])
     num_workers = config['num_workers']
     patches_per_image = config['patches_per_image']
     batch_size = config['train_batch_size']
 
-    # --- Transforms ---
     train_transform = trasform_by_channls(input_channels=input_channels)
     val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
 
-    # --- Load full train_val dataset for k-fold ---
     trainval_img_paths, trainval_mask_paths = collect_image_mask_pairs(
         root_dir / "train_val/img_cube", root_dir / "train_val/mask"
     )
-    kf = KFold(n_splits=5, shuffle=True, random_state=42)
-    splits = list(kf.split(trainval_img_paths))
 
-    train_indices, val_indices = splits[fold_idx]
-    train_img_paths = [trainval_img_paths[i] for i in train_indices]
-    train_mask_paths = [trainval_mask_paths[i] for i in train_indices]
-    val_img_paths = [trainval_img_paths[i] for i in val_indices]
-    val_mask_paths = [trainval_mask_paths[i] for i in val_indices]
+
+    train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = train_test_split(
+        trainval_img_paths,
+        trainval_mask_paths,
+        test_size=config.get("val_ratio", 0.1),
+        shuffle=True,
+        random_state=42
+    )
+
 
     train_dataset = SegmentationPatchDataset(
         train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform
@@ -250,22 +246,20 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
         
     input_channels = config['input_channels_ls'][0]
-    fold_idx = 0
-    for fold_idx in range(5):
-        print(f"Loading data for fold {fold_idx} with input channels: {input_channels}")
-        train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels, fold_idx=fold_idx)
-        print(f"[Fold {fold_idx}] Train samples: {len(train_loader.dataset)}")
-        print(f"[Fold {fold_idx}] Val samples: {len(val_loader.dataset)}")
-        print(f"Test samples: {len(test_loader.dataset)}")
-        print("Data loaders created successfully!")
-        
-        imgs, masks = next(iter(train_loader))
-        print(f"training loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
 
-        imgs, masks = next(iter(val_loader))
-        print(f"validation loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
+    print(f"Train samples: {len(train_loader.dataset)}")
+    print(f"Val samples: {len(val_loader.dataset)}")
+    print(f"Test samples: {len(test_loader.dataset)}")
+    print("Data loaders created successfully!")
+    
+    imgs, masks = next(iter(train_loader))
+    print(f"training loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
 
-        imgs, masks = next(iter(test_loader))
-        print(f"test loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        
+    imgs, masks = next(iter(val_loader))
+    print(f"validation loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+
+    imgs, masks = next(iter(test_loader))
+    print(f"test loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    
     

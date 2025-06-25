@@ -8,8 +8,7 @@ from tools.load_tools import CONFIG
 current_dir = Path(__file__).parent.resolve()
 
 time_str = time.strftime("%Y-%m-%d_%H-%M", time.localtime())
-# log_path = Path(CONFIG['root_dir']) / f"log_output_{'_'.join(CONFIG['model_name_ls'])}_{time_str}.log"
-log_path = current_dir.parent / 'log' / f"log_output_{'_'.join(CONFIG['model_name_ls'])}_{time_str}.log"
+log_path = current_dir.parent / 'log' / f"log_output_{time_str}.log"
 log_path.parent.mkdir(parents=True, exist_ok=True)  # Ensure log directory exists
 
 class Logger:
