@@ -1,5 +1,6 @@
 {
-    "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/palau_2024",
+    "dataset_name": "mangrove3d",
+    "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/palau_2024/mangrove3d",
     "train_val_test_split_file": "concrete_paths_rnd5.yaml",
     "label_file": "labels.json",
     "input_channels_ls": [

@@ -116,11 +116,13 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_chann
     return model
 
 
-def train_model(config, input_channels, model_name, pretrained_model_source=False, save_model=False):
+def train_model(config, input_channels, model_name, fold_idx=0, pretrained_model_source=False, save_model=False):
     # -------------------------------------------------------------------------
     # 1. Setup
     # -------------------------------------------------------------------------
-    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
+    # train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
+    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels, fold_idx=fold_idx)
+
     model = build_model_for_multi_channels(
         model_name=model_name,
         encoder_name=config['encoder_name'],
@@ -131,7 +133,8 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
     stop_early = config['stop_early']
     dummy_shape = list(next(iter(test_loader))[0].shape)
     epoch_num = config['epoch_num']
-    channel_info_str = '_'.join([str(ch) for ch in input_channels])
+    # channel_info_str = '_'.join([str(ch) for ch in input_channels])
+    channel_info_str = f"{'_'.join([str(ch) for ch in input_channels])}_fold{fold_idx}"
     num_classes = config['num_classes']
     # If loading from a pretrained model
     if pretrained_model_source:
@@ -236,9 +239,6 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
         val_oAccus.append(val_oAccu)
         val_mIoUs.append(val_mIoU)
 
-        # ---------------------
-        #   Logging
-        # ---------------------
         log.info(f"Epoch {epoch + 1}/{epoch_num} | "
               f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
               f"Train oAcc: {train_oAccu:.4f}, mIoU: {train_mIoU:.4f} | "
@@ -319,21 +319,50 @@ def train_model(config, input_channels, model_name, pretrained_model_source=Fals
     dump_dict_to_yaml(out_dict, train_log_file)
     return out_dict
 
+    
+
+def average_model_weights(model_paths, model_builder_fn):
+    base_model = model_builder_fn()
+    state_dicts = [torch.load(p, map_location='cpu', weights_only=True) for p in model_paths]
+    avg_state_dict = {}
+    for key in state_dicts[0].keys():
+        avg_state_dict[key] = sum(sd[key] for sd in state_dicts) / len(state_dicts)
+    base_model.load_state_dict(avg_state_dict)
+    return base_model
 
 if __name__ == "__main__":
-
     log.info(pformat(CONFIG))
     input_channels_ls = CONFIG['input_channels_ls']
     model_name_ls = CONFIG['model_name_ls']
-    for model_name in model_name_ls:
-        for input_channels in input_channels_ls:
-            log.info(f"✈️ Training {model_name} with input channels: {input_channels}")
-            train_model(CONFIG, 
-                        input_channels=input_channels, 
-                        model_name= model_name, 
-                        pretrained_model_source=False, save_model=True)
-            
-            #Explicitly free GPU memory after each run
-            torch.cuda.empty_cache()
-            gc.collect()
     
+    for model_name in model_name_ls:
+        model_dir = Path(CONFIG['root_dir']) / CONFIG['model_dir'] / model_name
+        for input_channels in input_channels_ls:
+            for fold_idx in range(5):
+                log.info(f"✈️ Fold {fold_idx+1}/5 | Training {model_name} with input channels: {input_channels}")
+                state_dict = train_model(CONFIG, input_channels=input_channels, model_name=model_name, fold_idx=fold_idx, save_model=True)
+                
+                torch.cuda.empty_cache()
+                gc.collect()
+
+            # Average model weights
+            channel_info_str = f"{'_'.join(map(str, input_channels))}_fold"
+            all_model_paths = list(model_dir.glob(f"{model_name}_{CONFIG['encoder_name']}_best_{channel_info_str}*.pth"))
+            all_model_paths.sort()
+            if not all_model_paths:
+                raise FileNotFoundError(f"No models found for {model_name} with input channels {input_channels} in {model_dir}")
+
+            # log.info("📦 Averaging 5-fold models...")
+            # avg_model = average_model_weights(
+            #     all_model_paths,
+            #     model_builder_fn=lambda: build_model_for_multi_channels(
+            #         model_name=model_name,
+            #         encoder_name=CONFIG['encoder_name'],
+            #         in_channels=len(input_channels),
+            #         num_classes=CONFIG['num_classes']
+            #     )
+            # )
+            # timestr = time.strftime("%Y%m%d_%H%M%S")
+            # avg_model_path = Path(CONFIG['root_dir']) / CONFIG['model_dir'] / model_name / f"{model_name}_avg_model_{'_'.join(map(str, input_channels))}_{timestr}.pth"
+            # torch.save(avg_model.state_dict(), avg_model_path)
+            # log.info(f"✅ Averaged model saved to: {avg_model_path}")

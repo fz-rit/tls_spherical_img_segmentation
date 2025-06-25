@@ -29,10 +29,13 @@ def load_model(config: dict, input_channels:list, model_name: str, device: str) 
     
     model_dir = Path(config['root_dir']) / config['model_dir'] / model_name
     channels_str = '_'.join([str(ch) for ch in input_channels])
-    pattern = re.compile(rf"^.*_best_{channels_str}_\d{{8}}_\d{{6}}\.pth$")
+    # pattern = re.compile(rf"^.*_avg_model_{channels_str}_\d{{8}}_\d{{6}}\.pth$")
 
-    model_file_ls = [f for f in model_dir.glob("*.pth") if pattern.search(f.name)]
-    model_file = model_file_ls[0] if len(model_file_ls) > 0 else None
+    # model_file_ls = [f for f in model_dir.glob("*.pth") if pattern.search(f.name)]
+    # model_file = model_file_ls[0] if len(model_file_ls) > 0 else None
+    # model_file = next(model_dir.glob(f"*avg_model_{channels_str}_*.pth"), None)
+    # model_file = model_dir / "unet_resnext50_32x4d_best_0_1_2_fold0_20250623_202135.pth"
+    model_file = model_dir / "unet_resnext50_32x4d_best_0_1_2_fold3_20250623_204119.pth"
     # Load the model if there is a saved model, otherwise train a new model
     if model_file.exists():
         model = build_model_for_multi_channels(model_name=model_name,
