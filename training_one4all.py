@@ -16,7 +16,7 @@ from tools.earlystopping import EarlyStopping
 from tools.logger_setup import Logger
 
 log = Logger()
-
+IGNORE_VAL = 255
 class JointLoss(nn.Module):
     def __init__(self, first_loss, second_loss, first_weight=0.5, second_weight=0.5):
         super(JointLoss, self).__init__()
@@ -117,11 +117,9 @@ def build_model_for_multi_channels(model_name, encoder_name='resnet34', in_chann
     return model
 
 
+
 def train_model(config, input_channels, model_setup_dict, load_pretrain=False, save_model=False, save_onnx=False):
-    # -------------------------------------------------------------------------
-    # 1. Setup
-    # -------------------------------------------------------------------------
-    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
+    train_loader, val_loader, _ = load_data(config, input_channels=input_channels)
     model_name = model_setup_dict['arch']
     encoder = model_setup_dict['encoder']
     out_file_str = model_setup_dict['name']
@@ -133,7 +131,7 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
     )
     pretrained_epoch = 0
     stop_early = config['stop_early']
-    dummy_shape = list(next(iter(test_loader))[0].shape)
+    dummy_shape = list(next(iter(train_loader))[0].shape)
     epoch_num = config['max_epoch_num']
     channel_info_str = '_'.join([str(ch) for ch in input_channels])
     num_classes = config['num_classes']
@@ -153,8 +151,8 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
 
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = JointLoss(
-        smp.losses.DiceLoss(mode='multiclass'),
-        torch.nn.CrossEntropyLoss(),
+        smp.losses.DiceLoss(mode='multiclass', ignore_index=IGNORE_VAL),
+        torch.nn.CrossEntropyLoss(ignore_index=IGNORE_VAL),
         first_weight=0.5,
         second_weight=0.5
     )
@@ -175,12 +173,16 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
         train_loss = 0
         y_true_train, y_pred_train = [], []
 
-        for imgs, masks in train_loader:
+        for imgs, masks, buf_masks in train_loader:
             imgs = imgs.to('cuda')
             masks = masks.to('cuda')
-
+            buf_masks = buf_masks.to('cuda')
             preds = model(imgs)
-            loss = loss_fn(preds, masks)
+            valid_mask = buf_masks.squeeze(1).bool()
+            core_masks = masks.clone()
+            core_masks[~valid_mask] = IGNORE_VAL
+
+            loss = loss_fn(preds, core_masks)
             train_loss += loss.item()
 
             optimizer.zero_grad()
@@ -188,8 +190,8 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
             optimizer.step()
 
             preds_labels = torch.argmax(preds, dim=1)
-            y_true_train.append(masks.cpu().numpy().ravel())
-            y_pred_train.append(preds_labels.cpu().numpy().ravel())
+            y_true_train.append(core_masks[valid_mask].cpu().numpy().ravel())
+            y_pred_train.append(preds_labels[valid_mask].cpu().numpy().ravel())
 
         train_loss /= len(train_loader)
         train_losses.append(train_loss)
@@ -209,17 +211,22 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
         y_true_val, y_pred_val = [], []
 
         with torch.no_grad():
-            for imgs, masks in val_loader:
+            for imgs, masks, buf_masks in val_loader:
                 imgs = imgs.to('cuda')
                 masks = masks.to('cuda')
+                buf_masks = buf_masks.to('cuda')
 
                 preds = model(imgs)
-                loss = loss_fn(preds, masks)
+                valid_mask = buf_masks.squeeze(1).bool()
+                core_masks = masks.clone()
+                core_masks[~valid_mask] = IGNORE_VAL
+                loss = loss_fn(preds, core_masks)
                 val_loss += loss.item()
 
+                
                 preds_labels = torch.argmax(preds, dim=1)
-                y_true_val.append(masks.cpu().numpy().ravel())
-                y_pred_val.append(preds_labels.cpu().numpy().ravel())
+                y_true_val.append(core_masks[valid_mask].cpu().numpy().ravel())
+                y_pred_val.append(preds_labels[valid_mask].cpu().numpy().ravel())
 
         val_loss /= len(val_loader)
         val_losses.append(val_loss)
@@ -303,16 +310,6 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
     dump_dict_to_yaml(out_dict, train_log_file)
     return out_dict
 
-    
-
-def average_model_weights(model_paths, model_builder_fn):
-    base_model = model_builder_fn()
-    state_dicts = [torch.load(p, map_location='cpu', weights_only=True) for p in model_paths]
-    avg_state_dict = {}
-    for key in state_dicts[0].keys():
-        avg_state_dict[key] = sum(sd[key] for sd in state_dicts) / len(state_dicts)
-    base_model.load_state_dict(avg_state_dict)
-    return base_model
 
 if __name__ == "__main__":
     log.info(pformat(CONFIG))

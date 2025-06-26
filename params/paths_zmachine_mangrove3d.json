@@ -3,7 +3,8 @@
     "root_dir": "/home/fzhcis/mylab/data/point_cloud_segmentation/segmentation_on_unwrapped_image/palau_2024/mangrove3d",
     "label_file": "labels.json",
     "input_channels_ls": [
-        [0, 1, 2]
+        [0, 1, 2],
+        [3, 4, 5]
     ],
     "model_dir": "models",
     "ensemble_config": [
@@ -17,6 +18,7 @@
     "patches_per_image": 5,
     "train_batch_size": 5,
     "max_epoch_num": 100,
+    "train_subset_cnt": 30,
     "model_save_interval": 40,
     "stop_early": true,
     "early_stop_patience": 5,

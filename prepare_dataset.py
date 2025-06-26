@@ -13,6 +13,14 @@ import yaml
 from pprint import pprint
 from tools.get_mean_std import normalize_img_per_channel
 from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
+
+
+def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
+    assert count <= len(img_paths), f"Requested {count} samples, but only {len(img_paths)} available"
+    img_sub, mask_sub = resample(img_paths, mask_paths, n_samples=count, random_state=seed, replace=False)
+    return img_sub, mask_sub
+
 
 def collect_image_mask_pairs(img_dir: Path, mask_dir: Path) -> Tuple[List[Path], List[Path]]:
     img_paths = sorted(img_dir.glob("*.npy"))
@@ -25,117 +33,141 @@ def collect_image_mask_pairs(img_dir: Path, mask_dir: Path) -> Tuple[List[Path],
         assert match, f"Image {img_path.name} does not match mask {mask_path.name}"
     return img_paths, mask_paths
 
-
-def pad_img_or_mask(arr):
+def pad_img_or_mask_vertical_only(arr):
     """
-    Padding a 2D mask or 3D image to make it divisible by 32.
-    
-    Args:
-        arr (np.ndarray): Input array of shape (H, W) or (H, W, C)
-    
-    Returns:
-        np.ndarray: Padded array with shape:
-                    - (H + pad_h, W + pad_w) if input was 2D
-                    - (H + pad_h, W + pad_w, C) if input was 3D
+    Pad only the vertical dimension (height) to make it divisible by 32.
     """
     h, w = arr.shape[:2]
-    pad_h = (32 - (h % 32)) % 32 // 2 # handle special case when h % 32 == 0
-    pad_w = (32 - (w % 32)) % 32 // 2
+    pad_h = (32 - (h % 32)) % 32
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
 
     if arr.ndim == 2:
-        padded = np.pad(arr, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
+        return np.pad(arr, ((pad_top, pad_bottom), (0, 0)), mode='constant').astype(np.float32)
     elif arr.ndim == 3:
-        padded = np.pad(arr, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='constant', constant_values=0)
+        return np.pad(arr, ((pad_top, pad_bottom), (0, 0), (0, 0)), mode='constant').astype(np.float32)
     else:
         raise ValueError(f"Input array must be 2D or 3D, got shape {arr.shape}")
-    return padded.astype(np.float32)
-    
-    
-def pad_img_and_mask(image, mask):
-    """
-    Padding an image and its corresponding mask to the target size.
-    
-    Args:
-        image (np.ndarray): Input image of shape (H, W, C)
-        mask (np.ndarray): Input mask of shape (H, W)
-    
-    Returns:
-        Tuple[np.ndarray, np.ndarray]: Padded image and mask.
-    """
-    padded_image = pad_img_or_mask(image)
-    padded_mask = pad_img_or_mask(mask)
-    return padded_image, padded_mask
 
-def depad_img_or_mask(padded_arr, original_shape):
-    """
-    Remove symmetric padding from a padded array.
-    
-    Args:
-        padded_arr (np.ndarray): Padded image or mask, shape (H + pad_h*2, W + pad_w*2) or (H + pad_h*2, W + pad_w*2, C)
-        original_shape (Tuple[int, int] or Tuple[int, int, int]): Original shape of the array before padding.
-    
-    Returns:
-        np.ndarray: Depadded array of shape original_shape.
-    """
-    orig_h, orig_w = original_shape[:2]
-    pad_h = (32 - (orig_h % 32)) % 32 // 2
-    pad_w = (32 - (orig_w % 32)) % 32 // 2
 
-    if padded_arr.ndim == 2:
-        return padded_arr[pad_h:pad_h + orig_h, pad_w:pad_w + orig_w]
-    elif padded_arr.ndim == 3:
-        return padded_arr[pad_h:pad_h + orig_h, pad_w:pad_w + orig_w, :]
+def pad_img_and_mask_vertical_only(image, mask):
+    return pad_img_or_mask_vertical_only(image), pad_img_or_mask_vertical_only(mask)
+
+def depad_tensor_vertical_only(tensor: torch.Tensor, original_height: int) -> torch.Tensor:
+    """
+    Remove vertical padding from a tensor (e.g., image, mask, or logits).
+
+    Args:
+        tensor: Tensor of shape [H, W], [C, H, W], or [B, C, H, W]
+        original_height: Height before vertical padding
+
+    Returns:
+        Tensor cropped back to original height.
+    """
+    if tensor.dim() == 2:
+        # [H, W]
+        H = tensor.shape[0]
+        pad_total = H - original_height
+        pad_top = pad_total // 2
+        pad_bottom = pad_total - pad_top
+        return tensor[pad_top:H - pad_bottom, :]
+
+    elif tensor.dim() == 3:
+        # [C, H, W]
+        H = tensor.shape[1]
+        pad_total = H - original_height
+        pad_top = pad_total // 2
+        pad_bottom = pad_total - pad_top
+        return tensor[:, pad_top:H - pad_bottom, :]
+
+    elif tensor.dim() == 4:
+        # [B, C, H, W]
+        H = tensor.shape[2]
+        pad_total = H - original_height
+        pad_top = pad_total // 2
+        pad_bottom = pad_total - pad_top
+        return tensor[:, :, pad_top:H - pad_bottom, :]
+
     else:
-        raise ValueError(f"Input array must be 2D or 3D, got shape {padded_arr.shape}")
+        raise ValueError(f"Unsupported tensor shape: {tensor.shape}")
+
 
 
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
                  image_file_paths, 
-                 mask_paths=None,  # Ground truth mask may not be available.
+                 mask_paths=None,
                  input_channels=None,
                  patch_splits=None, 
-                 transform=None, 
+                 transform=None,
+                 buffer_size: int = 0,  # <--- NEW
                  ):
         self.image_file_paths = image_file_paths
         self.input_channels = input_channels
         self.mask_paths = mask_paths
         self.patch_splits = patch_splits
         self.transform = transform
+        self.buffer_size = buffer_size
         self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
-        
     def __len__(self):
         return len(self.patch_idx_ls)
     
     def __getitem__(self, idx):
         i, p = self.patch_idx_ls[idx]
 
+        # Load image and mask
         image_cube = np.load(self.image_file_paths[i])
-        image_cube = image_cube[:, :, self.input_channels]  # Select only the input channels
-
+        image_cube = image_cube[:, :, self.input_channels]
         image_cube = normalize_img_per_channel(image_cube)
         mask = np.array(Image.open(self.mask_paths[i]))
 
-        patch_width = image_cube.shape[1] // self.patch_splits
-        x_start = p * patch_width
-        x_end = x_start + patch_width
-        image_patch = image_cube[:, x_start:x_end, :]
-        mask_patch = mask[:, x_start:x_end]
+        full_h, full_w = image_cube.shape[:2]
+        tile_w = full_w // self.patch_splits
+        in_size = tile_w + 2 * self.buffer_size
 
-        image_patch, mask_patch = pad_img_and_mask(image_patch, mask_patch)
+        x_center = p * tile_w + tile_w // 2
+        x_start = x_center - in_size // 2
+        x_end = x_start + in_size
 
+        pad_left = max(0, -x_start)
+        pad_right = max(0, x_end - full_w)
+        crop_l = max(0, x_start)
+        crop_r = min(full_w, x_end)
+
+        img_patch = image_cube[:, crop_l:crop_r, :]
+        mask_patch = mask[:, crop_l:crop_r]
+
+        if pad_left or pad_right:
+            img_patch = np.pad(img_patch, ((0, 0), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
+            mask_patch = np.pad(mask_patch, ((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
+
+        img_patch, mask_patch = pad_img_and_mask_vertical_only(img_patch, mask_patch)
+
+        # Construct buffer mask
+        H, W = mask_patch.shape
+        buffer_mask = np.zeros((H, W), dtype=np.uint8)
+        buffer_mask[:, self.buffer_size:self.buffer_size + tile_w] = 1
+
+        # Apply transforms
         if self.transform:
-            transformed = self.transform(image=image_patch, mask=mask_patch)
-            image_patch = transformed["image"]  # shape: (C, H, W) after ToTensorV2
-            mask_patch = transformed["mask"]    # shape: (H, W) or (1, H, W)
-            mask_patch = mask_patch.long()
+            tr = self.transform(image=img_patch, mask=mask_patch)
+            img_patch = tr["image"]
+            mask_patch = tr["mask"].long()
         else:
-            print("⚠️ WARNING: No transform provided. Converting to tensor manually.")
-            image_patch = torch.from_numpy(image_patch).permute(2, 0, 1).float() / 255.0
+            img_patch = torch.from_numpy(img_patch).permute(2, 0, 1).float() / 255.
             mask_patch = torch.from_numpy(mask_patch).long()
 
-        return image_patch, mask_patch
+        buffer_mask = torch.from_numpy(buffer_mask).unsqueeze(0).float()
+        return img_patch, mask_patch, buffer_mask
+
+
+def choose_buffer_size(tile_size, multiple_of=32):
+    for buf in range(32, 65, 4):  # reasonable range
+        if (tile_size + 2 * buf) % multiple_of == 0:
+            return buf
+    raise ValueError("No suitable buffer size found to make input divisible by {}".format(multiple_of))
+
 
 
 
@@ -191,12 +223,13 @@ def trasform_by_channls(input_channels:list, p=0.5):
 
 
 
-def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, DataLoader]:
+def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoader, DataLoader, DataLoader]:
 
     root_dir = Path(config["root_dir"])
     num_workers = config['num_workers']
     patches_per_image = config['patches_per_image']
     batch_size = config['train_batch_size']
+    input_size = config['input_size']
 
     train_transform = trasform_by_channls(input_channels=input_channels)
     val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
@@ -205,6 +238,11 @@ def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, Data
         root_dir / "train_val/img_cube", root_dir / "train_val/mask"
     )
 
+    if train_subset_cnt < len(trainval_img_paths):
+        print(f"Subsetting dataset to {train_subset_cnt} samples")
+        trainval_img_paths, trainval_mask_paths = subset_dataset_by_count(
+            trainval_img_paths, trainval_mask_paths, train_subset_cnt
+        )
 
     train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = train_test_split(
         trainval_img_paths,
@@ -213,24 +251,24 @@ def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, Data
         shuffle=True,
         random_state=42
     )
-
-
+    tile_w = input_size[1] // patches_per_image  
+    buffer_size = choose_buffer_size(tile_w, multiple_of=32)
+    print(f"Using adaptive buffer size horizontally: {buffer_size}")
     train_dataset = SegmentationPatchDataset(
-        train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform
+        train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform, buffer_size=buffer_size
     )
     val_dataset = SegmentationPatchDataset(
-        val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform
+        val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
     )
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
-    # --- Test loader ---
     test_img_paths, test_mask_paths = collect_image_mask_pairs(
         root_dir / "test/img_cube", root_dir / "test/mask"
     )
     test_dataset = SegmentationPatchDataset(
-        test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform
+        test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
     )
     test_loader = DataLoader(test_dataset, batch_size=patches_per_image, shuffle=False, num_workers=num_workers)
 
@@ -246,20 +284,20 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
         
     input_channels = config['input_channels_ls'][0]
-
-    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
+    train_subset_cnt = config.get('train_subset_cnt', 30)
+    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
     print(f"Train samples: {len(train_loader.dataset)}")
     print(f"Val samples: {len(val_loader.dataset)}")
     print(f"Test samples: {len(test_loader.dataset)}")
     print("Data loaders created successfully!")
     
-    imgs, masks = next(iter(train_loader))
-    print(f"training loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    imgs, masks, buffer_masks = next(iter(train_loader))
+    print(f"training loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
 
-    imgs, masks = next(iter(val_loader))
-    print(f"validation loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    imgs, masks, buffer_masks = next(iter(val_loader))
+    print(f"validation loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
 
-    imgs, masks = next(iter(test_loader))
-    print(f"test loader Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    imgs, masks, buffer_masks = next(iter(test_loader))
+    print(f"test loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
     
     
