@@ -76,4 +76,12 @@ Where \(C\) is the number of classes.
 
 
 
+## Installation
+```bash
+conda create -n img_seg_env python=3.9 -y
+conda activate img_seg_env
+conda install -c conda-forge pytorch torchvision opencv tensorboard seaborn -y
+pip install albumentations segmentation-models-pytorch
+
+```
 

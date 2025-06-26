@@ -2,226 +2,173 @@ import torch
 from torch.utils.data import Dataset
 from PIL import Image
 import numpy as np
-from torchvision import transforms
 from torch.utils.data import DataLoader
 from pathlib import Path
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
-from typing import Tuple, Dict, List, Any
+from typing import Tuple, Dict, List
 import json
+import yaml
 from pprint import pprint
+from tools.get_mean_std import normalize_img_per_channel
+from sklearn.model_selection import train_test_split
+from sklearn.utils import resample
 
-PATCH_PER_IMAGE = 6
-PATCH_WIDTH = 256
-NUM_CLASSES = 6
+
+def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
+    assert count <= len(img_paths), f"Requested {count} samples, but only {len(img_paths)} available"
+    img_sub, mask_sub = resample(img_paths, mask_paths, n_samples=count, random_state=seed, replace=False)
+    return img_sub, mask_sub
 
 
-def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
+def collect_image_mask_pairs(img_dir: Path, mask_dir: Path) -> Tuple[List[Path], List[Path]]:
+    img_paths = sorted(img_dir.glob("*.npy"))
+    mask_paths = sorted(mask_dir.glob("*.png"))
+    assert len(img_paths) == len(mask_paths), "Mismatch between images and masks"
+    assert len(img_paths) > 0, f"No images found in {img_dir}"
+    assert len(mask_paths) > 0, f"No masks found in {mask_dir}"
+    for img_path, mask_path in zip(img_paths, mask_paths):
+        match = img_path.stem.split("_image_cube")[0][-4:] == mask_path.stem.split("_segmk")[0][-4:]
+        assert match, f"Image {img_path.name} does not match mask {mask_path.name}"
+    return img_paths, mask_paths
+
+def pad_img_or_mask_vertical_only(arr):
     """
-    Loads an image cube and its metadata from saved .npy files.
-
-    Parameters:
-    - image_cube_path: The path to the saved image cube file.
-    - metadata_path: The path to the saved metadata file.
-
-    Returns:
-    - A dictionary containing the image cube and metadata.
+    Pad only the vertical dimension (height) to make it divisible by 32.
     """
-    
-    # Load the image cube (8-channel data)
-    image_cube = np.load(image_cube_path, allow_pickle=True)
-    
-    # Load the metadata from .json file
-    with open(metadata_path, 'r') as file:
-        metadata = json.load(file)
-
-    return image_cube, metadata
-
-
-def resize_image_or_mask(arr, target_size):
-    """
-    Resize a 2D mask or 3D image cube using PIL.
-    
-    Args:
-        arr (np.ndarray): Input array of shape (H, W) or (H, W, C)
-        target_size (tuple): (target_height, target_width)
-    
-    Returns:
-        np.ndarray: Resized array with shape:
-                    - (target_H, target_W) if input was 2D
-                    - (target_H, target_W, C) if input was 3D
-    """
-    target_h, target_w = target_size
-
-    # Ensure dtype is supported by PIL
-    if arr.dtype == np.int64:
-        arr = arr.astype(np.int32)
-    elif arr.dtype == np.float64:
-        arr = arr.astype(np.float32)
+    h, w = arr.shape[:2]
+    pad_h = (32 - (h % 32)) % 32
+    pad_top = pad_h // 2
+    pad_bottom = pad_h - pad_top
 
     if arr.ndim == 2:
-        # It's a 2D mask → use NEAREST
-        img = Image.fromarray(arr)
-        resized = img.resize((target_w, target_h), resample=Image.NEAREST)
-        return np.array(resized)
-
+        return np.pad(arr, ((pad_top, pad_bottom), (0, 0)), mode='constant').astype(np.float32)
     elif arr.ndim == 3:
-        # It's an image cube → resize each channel using BILINEAR
-        resized_channels = []
-        for c in range(arr.shape[2]):
-            img_c = Image.fromarray(arr[:, :, c])
-            img_resized = img_c.resize((target_w, target_h), resample=Image.BILINEAR)
-            resized_channels.append(np.array(img_resized))
-        return np.stack(resized_channels, axis=2)
-
+        return np.pad(arr, ((pad_top, pad_bottom), (0, 0), (0, 0)), mode='constant').astype(np.float32)
     else:
         raise ValueError(f"Input array must be 2D or 3D, got shape {arr.shape}")
-    
-def resize_image_and_mask(image, mask, target_size):
+
+
+def pad_img_and_mask_vertical_only(image, mask):
+    return pad_img_or_mask_vertical_only(image), pad_img_or_mask_vertical_only(mask)
+
+def depad_tensor_vertical_only(tensor: torch.Tensor, original_height: int) -> torch.Tensor:
     """
-    Resize an image and its corresponding mask to the target size.
-    
+    Remove vertical padding from a tensor (e.g., image, mask, or logits).
+
     Args:
-        image (np.ndarray): Input image of shape (H, W, C)
-        mask (np.ndarray): Input mask of shape (H, W)
-        target_size (tuple): (target_height, target_width)
-    
+        tensor: Tensor of shape [H, W], [C, H, W], or [B, C, H, W]
+        original_height: Height before vertical padding
+
     Returns:
-        Tuple[np.ndarray, np.ndarray]: Resized image and mask.
+        Tensor cropped back to original height.
     """
-    resized_image = resize_image_or_mask(image, target_size)
-    resized_mask = resize_image_or_mask(mask, target_size)
-    return resized_image, resized_mask
+    if tensor.dim() == 2:
+        # [H, W]
+        H = tensor.shape[0]
+        pad_total = H - original_height
+        pad_top = pad_total // 2
+        pad_bottom = pad_total - pad_top
+        return tensor[pad_top:H - pad_bottom, :]
+
+    elif tensor.dim() == 3:
+        # [C, H, W]
+        H = tensor.shape[1]
+        pad_total = H - original_height
+        pad_top = pad_total // 2
+        pad_bottom = pad_total - pad_top
+        return tensor[:, pad_top:H - pad_bottom, :]
+
+    elif tensor.dim() == 4:
+        # [B, C, H, W]
+        H = tensor.shape[2]
+        pad_total = H - original_height
+        pad_top = pad_total // 2
+        pad_bottom = pad_total - pad_top
+        return tensor[:, :, pad_top:H - pad_bottom, :]
+
+    else:
+        raise ValueError(f"Unsupported tensor shape: {tensor.shape}")
 
 
 
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
                  image_file_paths, 
-                 image_meta_paths,
-                 mask_paths=None,  # Ground truth mask may not be available.
-                 patch_splits=PATCH_PER_IMAGE, 
-                 transform=None, 
-                 mask_transform=None,
-                 labels_map=None):
+                 mask_paths=None,
+                 input_channels=None,
+                 patch_splits=None, 
+                 transform=None,
+                 buffer_size: int = 0,  # <--- NEW
+                 ):
         self.image_file_paths = image_file_paths
-        self.image_meta_paths = image_meta_paths
+        self.input_channels = input_channels
         self.mask_paths = mask_paths
         self.patch_splits = patch_splits
         self.transform = transform
-        self.mask_transform = mask_transform
-        self.labels_map = labels_map
-        self.patch_coords = []  # Will store tuples: [(img_index, x_start, x_end)...]
+        self.buffer_size = buffer_size
+        self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
-        patch_width = PATCH_WIDTH
-        
-        # Create patch coordinates for all images
-        for i in range(len(self.image_file_paths)):
-            for p in range(patch_splits):
-                x_start = p * patch_width
-                x_end = x_start + patch_width
-                self.patch_coords.append((i, x_start, x_end))
-        
     def __len__(self):
-        return len(self.patch_coords)
+        return len(self.patch_idx_ls)
     
     def __getitem__(self, idx):
-        i, x_start, x_end = self.patch_coords[idx]
+        i, p = self.patch_idx_ls[idx]
 
-        image_cube, _ = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
+        # Load image and mask
+        image_cube = np.load(self.image_file_paths[i])
+        image_cube = image_cube[:, :, self.input_channels]
+        image_cube = normalize_img_per_channel(image_cube)
         mask = np.array(Image.open(self.mask_paths[i]))
-        # Resize the input image and mask to be divisible by 32: (540, 1440) -> (512, 1536)
-        image_cube_resized, mask_resized = resize_image_and_mask(image_cube, mask, (512, 1536))
 
-        image_patch = image_cube_resized[:, x_start:x_end, :]
-        mask_patch = mask_resized[:, x_start:x_end]
+        full_h, full_w = image_cube.shape[:2]
+        tile_w = full_w // self.patch_splits
+        in_size = tile_w + 2 * self.buffer_size
 
-        # Apply Albumentations transform if provided
+        x_center = p * tile_w + tile_w // 2
+        x_start = x_center - in_size // 2
+        x_end = x_start + in_size
+
+        pad_left = max(0, -x_start)
+        pad_right = max(0, x_end - full_w)
+        crop_l = max(0, x_start)
+        crop_r = min(full_w, x_end)
+
+        img_patch = image_cube[:, crop_l:crop_r, :]
+        mask_patch = mask[:, crop_l:crop_r]
+
+        if pad_left or pad_right:
+            img_patch = np.pad(img_patch, ((0, 0), (pad_left, pad_right), (0, 0)), mode='constant', constant_values=0)
+            mask_patch = np.pad(mask_patch, ((0, 0), (pad_left, pad_right)), mode='constant', constant_values=0)
+
+        img_patch, mask_patch = pad_img_and_mask_vertical_only(img_patch, mask_patch)
+
+        # Construct buffer mask
+        H, W = mask_patch.shape
+        buffer_mask = np.zeros((H, W), dtype=np.uint8)
+        buffer_mask[:, self.buffer_size:self.buffer_size + tile_w] = 1
+
+        # Apply transforms
         if self.transform:
-            transformed = self.transform(image=image_patch, mask=mask_patch)
-            image_patch = transformed["image"]  # shape: (C, H, W) after ToTensorV2
-            mask_patch = transformed["mask"]          # shape: (H, W) or (1, H, W)
-            mask_patch = mask_patch.long()
+            tr = self.transform(image=img_patch, mask=mask_patch)
+            img_patch = tr["image"]
+            mask_patch = tr["mask"].long()
         else:
-            # If no transform, convert to torch.Tensor manually
-            image_patch = torch.from_numpy(image_patch).permute(2, 0, 1).float() / 255.0
+            img_patch = torch.from_numpy(img_patch).permute(2, 0, 1).float() / 255.
             mask_patch = torch.from_numpy(mask_patch).long()
 
-        return image_patch, mask_patch
+        buffer_mask = torch.from_numpy(buffer_mask).unsqueeze(0).float()
+        return img_patch, mask_patch, buffer_mask
 
 
-
-def get_data_paths(config: Dict, verbose: bool = False) -> Tuple[Dict[str, List[Path]], Dict[str, List[Path]], Dict[str, List[Path]]]:
-    """
-    Get image and mask paths from the config dictionary.
-
-    Args:
-    config (dict): Configuration dictionary.
-    """
-    root_dir = Path(config['root_dir'])
-    image_dir = root_dir / Path(config['image_dir'])
-    mask_dir = root_dir / Path(config['mask_dir'])
-    train_val_test_split_file = Path(config['root_dir']) / config['train_val_test_split_file']
-
-    with open(train_val_test_split_file, 'r') as file:
-        tvt_splits = json.load(file)
-
-    image_file_path_dict = {}
-    image_meta_path_dict = {}
-    mask_path_dict = {}
-
-    for split in ['train', 'val', 'test']:
-        image_file_path_dict[split] = []
-        image_meta_path_dict[split] = []
-        mask_path_dict[split] = []
-
-        for num_str in sorted(tvt_splits[split]):
-            for image_file_path in image_dir.glob(config['image_file_pattern']):
-                if num_str in image_file_path.stem:
-                    image_file_path_dict[split].append(image_file_path)
-                    break
-
-            for image_meta_path in image_dir.glob(config['image_meta_pattern']):
-                if num_str in image_meta_path.stem:
-                    image_meta_path_dict[split].append(image_meta_path)
-                    break
-
-            for mask_path in mask_dir.glob(config['mask_file_pattern']):
-                if num_str in mask_path.stem:
-                    mask_path_dict[split].append(mask_path)
-                    break 
-    
-    if verbose:
-        pprint(image_file_path_dict)
-        pprint(image_meta_path_dict)
-        pprint(mask_path_dict)
-
-    return image_file_path_dict, image_meta_path_dict, mask_path_dict
+def choose_buffer_size(tile_size, multiple_of=32):
+    for buf in range(32, 65, 4):  # reasonable range
+        if (tile_size + 2 * buf) % multiple_of == 0:
+            return buf
+    raise ValueError("No suitable buffer size found to make input divisible by {}".format(multiple_of))
 
 
-# class BrightnessContrastOnlyFirst3Channels(A.ImageOnlyTransform):
-#     def __init__(self, brightness_limit=0.2, contrast_limit=0.2, p=0.5):
-#         super().__init__(p=p)
-#         self.brightness_limit = brightness_limit
-#         self.contrast_limit = contrast_limit
-#         self.bc_transform = A.RandomBrightnessContrast(
-#             brightness_limit=self.brightness_limit,
-#             contrast_limit=self.contrast_limit,
-#             p=1.0  # always apply inside
-#         )
-
-#     def apply(self, img, **params):
-#         # img shape [H, W, C]
-#         # separate first 3 channels from geometry
-#         first3 = img[:, :, :3]
-#         last3 = img[:, :, 3:]
-
-#         # Albumentations needs an image with shape [H, W, C]
-#         # apply bc_transform to the first3 only
-#         first3_aug = self.bc_transform(image=first3)['image']
-#         # re-concat
-#         return np.concatenate([first3_aug, last3], axis=2)
 
 
 class ChannelShuffleGroups(A.ImageOnlyTransform):
@@ -238,102 +185,119 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
         """
         img: A NumPy array of shape (H, W, C)
         """
-        # Make a copy so we can reassign channels safely.
         out = img.copy()
 
-        # Shuffle channels within each group.
         for group in self.groups:
-            # Create a random permutation of the channel indices in this group.
             shuffled = np.random.permutation(group)
 
-            # Assign them back in place:
             for old_ch, new_ch in zip(group, shuffled):
                 out[:, :, old_ch] = img[:, :, new_ch]
 
         return out
 
-def load_data(config):
-    # Get image and mask paths
-    image_file_path_dict, image_meta_path_dict, mask_path_dict = get_data_paths(config)
 
-    labels_map = {
-        0: 'Void',
-        1: 'Ground & Water',
-        2: 'Stem',
-        3: 'Canopy',
-        4: 'Roots',
-        5: 'Objects'
-    }
+def trasform_by_channls(input_channels:list, p=0.5):
+    """
+    
+    p: probability of applying the transform
+    """
+    if len(input_channels) == 3:
+        shuffle_groups = [[0, 1, 2]]
+    elif len(input_channels) == 6:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5]]
+    elif len(input_channels) == 9:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+    elif len(input_channels) == 15:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8], 
+                          [9, 10, 11], [12, 13, 14]]
 
-    # ---- Define Albumentations transforms ----
-    train_transform = A.Compose([
-                                    ChannelShuffleGroups(groups=[[0, 1, 2, 3, 4], [5, 6, 7]], p=0.5),
-                                    A.Resize(height=512, width=PATCH_WIDTH),
-                                    A.HorizontalFlip(p=0.5),
-                                    # A.VerticalFlip(p=0.5),
-                                    # A.RandomRotate90(p=0.5),
-                                    A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=10, p=0.5),
-                                    # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
-                                    # A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
-                                    #             std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
-                                    A.pytorch.ToTensorV2()
-                                ],
-                                additional_targets={'mask': 'mask'})
+    transform = A.Compose([
+        ChannelShuffleGroups(groups=shuffle_groups, p=p),
+        A.HorizontalFlip(p=0.5),
+        A.Affine(translate_percent=0.0625, scale=(1 - 0.15, 1 + 0.15), rotate=(-10, 10), p=0.5),
+        A.pytorch.ToTensorV2()
+    ],
+    additional_targets={'mask': 'mask'})
 
-    val_transform = A.Compose([
-                                A.Resize(height=512, width=PATCH_WIDTH),
-                                # A.Normalize(
-                                #     mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0),
-                                #     std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)
-                                # ),
-                                ToTensorV2()
-                            ], additional_targets={'mask': 'mask'})
+    return transform
 
-    # ---- Create dataloaders for train, val, and test ----
-    dataloaders = {}
-    for split in ['train', 'val', 'test']:
-        image_file_paths = image_file_path_dict[split]
-        image_meta_paths = image_meta_path_dict[split]
-        mask_paths = mask_path_dict[split]
 
-        dataset = SegmentationPatchDataset(
-            image_file_paths=image_file_paths,
-            image_meta_paths=image_meta_paths,
-            mask_paths=mask_paths,
-            patch_splits=PATCH_PER_IMAGE,
-            transform=train_transform if split == 'train' else val_transform,
-            labels_map=labels_map
+
+def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoader, DataLoader, DataLoader]:
+
+    root_dir = Path(config["root_dir"])
+    num_workers = config['num_workers']
+    patches_per_image = config['patches_per_image']
+    batch_size = config['train_batch_size']
+    input_size = config['input_size']
+
+    train_transform = trasform_by_channls(input_channels=input_channels)
+    val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
+
+    trainval_img_paths, trainval_mask_paths = collect_image_mask_pairs(
+        root_dir / "train_val/img_cube", root_dir / "train_val/mask"
+    )
+
+    if train_subset_cnt < len(trainval_img_paths):
+        print(f"Subsetting dataset to {train_subset_cnt} samples")
+        trainval_img_paths, trainval_mask_paths = subset_dataset_by_count(
+            trainval_img_paths, trainval_mask_paths, train_subset_cnt
         )
 
-        bt_size = PATCH_PER_IMAGE if split == 'test' else config['train_batch_size']
-        dataloaders[split] = DataLoader(dataset, batch_size=bt_size, shuffle=True if split == 'train' else False, num_workers=2)
+    train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = train_test_split(
+        trainval_img_paths,
+        trainval_mask_paths,
+        test_size=config.get("val_ratio", 0.1),
+        shuffle=True,
+        random_state=42
+    )
+    tile_w = input_size[1] // patches_per_image  
+    buffer_size = choose_buffer_size(tile_w, multiple_of=32)
+    print(f"Using adaptive buffer size horizontally: {buffer_size}")
+    train_dataset = SegmentationPatchDataset(
+        train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform, buffer_size=buffer_size
+    )
+    val_dataset = SegmentationPatchDataset(
+        val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
+    )
 
-    train_loader = dataloaders['train']
-    val_loader = dataloaders['val']
-    test_loader = dataloaders['test']
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
+
+    test_img_paths, test_mask_paths = collect_image_mask_pairs(
+        root_dir / "test/img_cube", root_dir / "test/mask"
+    )
+    test_dataset = SegmentationPatchDataset(
+        test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
+    )
+    test_loader = DataLoader(test_dataset, batch_size=patches_per_image, shuffle=False, num_workers=num_workers)
+
     return train_loader, val_loader, test_loader
 
 
+
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine.json'
+    config_file = 'params/paths_zmachine_mangrove3d.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
-    
-    train_loader, val_loader, test_loader = load_data(config)
-    print(f"Training data: {len(train_loader.dataset)} samples")
-    print(f"Validation data: {len(val_loader.dataset)} samples")
-    print(f"Test data: {len(test_loader.dataset)} samples")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+        
+    input_channels = config['input_channels_ls'][0]
+    train_subset_cnt = config.get('train_subset_cnt', 30)
+    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
+    print(f"Train samples: {len(train_loader.dataset)}")
+    print(f"Val samples: {len(val_loader.dataset)}")
+    print(f"Test samples: {len(test_loader.dataset)}")
     print("Data loaders created successfully!")
-    print("Sample batch from training loader:")
-    for imgs, masks in train_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-    print("Sample batch from validation loader:")
-    for imgs, masks in val_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
-    print("Sample batch from test loader:")
-    for imgs, masks in test_loader:
-        print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
-        break
+    
+    imgs, masks, buffer_masks = next(iter(train_loader))
+    print(f"training loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
 
+    imgs, masks, buffer_masks = next(iter(val_loader))
+    print(f"validation loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
+
+    imgs, masks, buffer_masks = next(iter(test_loader))
+    print(f"test loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
+    
+    

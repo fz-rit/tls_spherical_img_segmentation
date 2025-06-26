@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 from PIL import Image
-from tools.load_tools import custom_cmap, get_pil_palette
+from tools.load_tools import get_color_map, get_pil_palette
 
 
 # ---------- Load Image ---------- #
@@ -58,7 +58,7 @@ for cluster_id, semantic_id in semantic_mapping.items():
 
 # ---------- Visualization with Matplotlib ---------- #
 plt.figure(figsize=(10, 10))
-plt.imshow(seg_mask, cmap=custom_cmap(), vmin=0, vmax=5)
+plt.imshow(seg_mask, cmap=get_color_map(), vmin=0, vmax=5)
 plt.title("Semantic Segmentation: Void, Ground, Stem, Canopy, Roots, Objects")
 plt.axis('off')
 plt.show()

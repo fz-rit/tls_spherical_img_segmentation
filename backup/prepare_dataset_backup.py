@@ -8,99 +8,133 @@ from pathlib import Path
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 from torch.utils.data import DataLoader
-from typing import Tuple, Dict, Any
+from typing import Tuple, Dict, List, Any
+import json
+import yaml
+from pprint import pprint
+from tools.get_mean_std import read_mean_std_from_yaml, normalize_img_per_channel
 
-def load_image_cube_and_metadata(image_cube_path: Path, metadata_path: Path) -> Dict[str, Any]:
+
+
+def pad_img_or_mask(arr):
     """
-    Loads an image cube and its metadata from saved .npy files.
-
-    Parameters:
-    - image_cube_path: The path to the saved image cube file.
-    - metadata_path: The path to the saved metadata file.
-
+    Padding a 2D mask or 3D image to make it divisible by 32.
+    
+    Args:
+        arr (np.ndarray): Input array of shape (H, W) or (H, W, C)
+    
     Returns:
-    - A dictionary containing the image cube and metadata.
+        np.ndarray: Padded array with shape:
+                    - (H + pad_h, W + pad_w) if input was 2D
+                    - (H + pad_h, W + pad_w, C) if input was 3D
     """
-    
-    # Load the image cube (8-channel data)
-    image_cube = np.load(image_cube_path, allow_pickle=True)
-    # print(f"Image cube loaded from {image_cube_path}, shape: {image_cube.shape}")
-    
-    # Load the metadata
-    metadata = np.load(metadata_path, allow_pickle=True).item()  # use .item() to load it as a dictionary
-    # print(f"Metadata loaded from {metadata_path}")
+    h, w = arr.shape[:2]
+    pad_h = (32 - (h % 32)) % 32 // 2 # handle special case when h % 32 == 0
+    pad_w = (32 - (w % 32)) % 32 // 2
 
-    return {
-        'image_cube': image_cube,
-        'metadata': metadata
-    }
+    if arr.ndim == 2:
+        # It's a 2D mask
+        padded = np.pad(arr, ((pad_h, pad_h), (pad_w, pad_w)), mode='constant', constant_values=0)
+    elif arr.ndim == 3:
+        # It's a 3D image cube
+        padded = np.pad(arr, ((pad_h, pad_h), (pad_w, pad_w), (0, 0)), mode='constant', constant_values=0)
+    else:
+        raise ValueError(f"Input array must be 2D or 3D, got shape {arr.shape}")
+    return padded.astype(np.float32)
+    
+    
+def pad_img_and_mask(image, mask):
+    """
+    Padding an image and its corresponding mask to the target size.
+    
+    Args:
+        image (np.ndarray): Input image of shape (H, W, C)
+        mask (np.ndarray): Input mask of shape (H, W)
+    
+    Returns:
+        Tuple[np.ndarray, np.ndarray]: Padded image and mask.
+    """
+    padded_image = pad_img_or_mask(image)
+    padded_mask = pad_img_or_mask(mask)
+    return padded_image, padded_mask
+
+def depad_img_or_mask(padded_arr, original_shape):
+    """
+    Remove symmetric padding from a padded array.
+    
+    Args:
+        padded_arr (np.ndarray): Padded image or mask, shape (H + pad_h*2, W + pad_w*2) or (H + pad_h*2, W + pad_w*2, C)
+        original_shape (Tuple[int, int] or Tuple[int, int, int]): Original shape of the array before padding.
+    
+    Returns:
+        np.ndarray: Depadded array of shape original_shape.
+    """
+    orig_h, orig_w = original_shape[:2]
+    pad_h = (32 - (orig_h % 32)) % 32 // 2
+    pad_w = (32 - (orig_w % 32)) % 32 // 2
+
+    if padded_arr.ndim == 2:
+        return padded_arr[pad_h:pad_h + orig_h, pad_w:pad_w + orig_w]
+    elif padded_arr.ndim == 3:
+        return padded_arr[pad_h:pad_h + orig_h, pad_w:pad_w + orig_w, :]
+    else:
+        raise ValueError(f"Input array must be 2D or 3D, got shape {padded_arr.shape}")
 
 
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
                  image_file_paths, 
-                 image_meta_paths,
-                 mask_paths, 
-                 patch_splits=5, 
+                 mask_paths=None,  # Ground truth mask may not be available.
+                 input_channels=None,
+                 patch_splits=None, 
                  transform=None, 
-                 mask_transform=None,
-                 labels_map=None):
+                #  labels_map=None
+                 ):
         self.image_file_paths = image_file_paths
-        self.image_meta_paths = image_meta_paths
+        self.input_channels = input_channels
         self.mask_paths = mask_paths
         self.patch_splits = patch_splits
         self.transform = transform
-        self.mask_transform = mask_transform
-        self.labels_map = labels_map
-        self.patch_coords = []  # Will store tuples: (img_index, x_start, x_end)
+        # self.labels_map = labels_map
+        self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
-        # Open a sample image to determine dimensions
-        data = load_image_cube_and_metadata(self.image_file_paths[0], self.image_meta_paths[0])
-        image_cube = data['image_cube']
-        metadata = data['metadata']
-        w = image_cube.shape[1]
-        patch_width = w // patch_splits
-        
-        # Create patch coordinates for all images
-        for i in range(len(self.image_file_paths)):
-            for p in range(patch_splits):
-                x_start = p * patch_width
-                x_end = x_start + patch_width
-                self.patch_coords.append((i, x_start, x_end))
         
     def __len__(self):
-        return len(self.patch_coords)
+        return len(self.patch_idx_ls)
     
     def __getitem__(self, idx):
-        i, x_start, x_end = self.patch_coords[idx]
+        i, p = self.patch_idx_ls[idx]
 
-        data = load_image_cube_and_metadata(self.image_file_paths[i], self.image_meta_paths[i])
-        image_cube = data['image_cube']
-        metadata = data['metadata']
+        image_cube = np.load(self.image_file_paths[i])
+        image_cube = image_cube[:, :, self.input_channels]  # Select only the input channels
+
+        image_cube = normalize_img_per_channel(image_cube)
         mask = np.array(Image.open(self.mask_paths[i]))
 
-        top_crop, bottom_crop = 14, 526  # cut off the top and bottom 14 pixels
-        combined_img = image_cube[top_crop:bottom_crop, x_start:x_end, ...]
+        patch_width = image_cube.shape[1] // self.patch_splits
+        x_start = p * patch_width
+        x_end = x_start + patch_width
+        image_patch = image_cube[:, x_start:x_end, :]
+        mask_patch = mask[:, x_start:x_end]
 
-        # Crop the mask to match
-        mask = mask[top_crop:bottom_crop, x_start:x_end]
+        image_patch, mask_patch = pad_img_and_mask(image_patch, mask_patch)
 
         # Apply Albumentations transform if provided
         if self.transform:
-            transformed = self.transform(image=combined_img, mask=mask)
-            combined_img = transformed["image"]  # shape: (C, H, W) after ToTensorV2
-            mask = transformed["mask"]          # shape: (H, W) or (1, H, W)
-            mask = mask.long()
+            transformed = self.transform(image=image_patch, mask=mask_patch)
+            image_patch = transformed["image"]  # shape: (C, H, W) after ToTensorV2
+            mask_patch = transformed["mask"]    # shape: (H, W) or (1, H, W)
+            mask_patch = mask_patch.long()
         else:
-            # If no transform, convert to torch.Tensor manually
-            combined_img = torch.from_numpy(combined_img).permute(2, 0, 1).float() / 255.0
-            mask = torch.from_numpy(mask).long()
+            print("⚠️ WARNING: No transform provided. Converting to tensor manually.")
+            image_patch = torch.from_numpy(image_patch).permute(2, 0, 1).float() / 255.0
+            mask_patch = torch.from_numpy(mask_patch).long()
 
-        return combined_img, mask
+        return image_patch, mask_patch
 
 
 
-def get_image_maskt_paths(config: dict) -> Tuple[list, list, list]:
+def get_data_paths(config: Dict, verbose: bool = False) -> Tuple[Dict[str, List[Path]], Dict[str, List[Path]], Dict[str, List[Path]]]:
     """
     Get image and mask paths from the config dictionary.
 
@@ -108,14 +142,20 @@ def get_image_maskt_paths(config: dict) -> Tuple[list, list, list]:
     config (dict): Configuration dictionary.
     """
     root_dir = Path(config['root_dir'])
-    image_dir = root_dir / Path(config['image_dir'])
-    mask_dir = root_dir / Path(config['mask_dir'])
+    train_val_test_split_file = root_dir / config['train_val_test_split_file']
 
-    image_file_paths = sorted(image_dir.glob(config['image_file_pattern']))
-    image_meta_paths = sorted(image_dir.glob(config['image_meta_pattern']))
-    mask_paths = sorted(mask_dir.glob(config['mask_file_pattern']))
+    with open(train_val_test_split_file, 'r') as f:
+        split_paths = yaml.safe_load(f)
 
-    return image_file_paths, image_meta_paths, mask_paths
+    image_file_path_dict = split_paths['img']
+    mask_path_dict = split_paths['mask']
+
+    
+    if verbose:
+        pprint(image_file_path_dict)
+        pprint(mask_path_dict)
+
+    return image_file_path_dict, mask_path_dict
 
 
 # class BrightnessContrastOnlyFirst3Channels(A.ImageOnlyTransform):
@@ -170,88 +210,134 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
 
         return out
 
-def load_data(config):
+
+def trasform_by_channls(input_channels:list, p=0.5):
+    """
+    
+    p: probability of applying the transform
+    """
+    # channel_groups = [
+    #     [0, 1, 2], # Intensity - Z - Range
+    #     [3, 4, 5], # Adjusted Intensity - ZInv - Range
+    #     [6, 7, 8], # Pseudo-RGB from normals
+    #     [9, 10, 11], # PCA
+    #     [12, 13, 14], # MNF
+    #     [15, 16, 17], # ICA
+    # ]
+    if len(input_channels) == 3:
+        shuffle_groups = [[0, 1, 2]]
+        # norm_mean = [0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225]
+    elif len(input_channels) == 6:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5]]
+        # norm_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225]
+    elif len(input_channels) == 9:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
+        # norm_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406, 0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225, 0.229, 0.224, 0.225]
+    elif len(input_channels) == 15:
+        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8], 
+                          [9, 10, 11], [12, 13, 14]]
+        # norm_mean = [0.485, 0.456, 0.406, 0.485, 0.456, 0.406,
+        #                 0.485, 0.456, 0.406, 0.485, 0.456, 0.406,
+        #                 0.485, 0.456, 0.406]
+        # norm_std = [0.229, 0.224, 0.225, 0.229, 0.224, 0.225,
+        #                 0.229, 0.224, 0.225, 0.229, 0.224, 0.225,
+        #                 0.229, 0.224, 0.225]
+
+    transform = A.Compose([
+        ChannelShuffleGroups(groups=shuffle_groups, p=p),
+        A.HorizontalFlip(p=0.5),
+        A.Affine(translate_percent=0.0625, scale=(1 - 0.15, 1 + 0.15), rotate=(-10, 10), p=0.5),
+        # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
+        # A.Normalize(mean=norm_mean, std=norm_std),  ## Due to the distribution difference, training without normalization is better.
+        A.pytorch.ToTensorV2()
+    ],
+    additional_targets={'mask': 'mask'})
+
+    return transform
+
+
+def load_data(config, input_channels=None) -> Tuple[DataLoader, DataLoader, DataLoader]:
     # Get image and mask paths
-    image_file_paths, image_meta_paths, mask_paths = get_image_maskt_paths(config)
-
-    labels_map = {
-        0: 'Void',
-        1: 'Ground & Water',
-        2: 'Stem',
-        3: 'Canopy',
-        4: 'Roots',
-        5: 'Objects'
-    }
-
-    # Split into training and validation
-    train_image_file_paths = image_file_paths[:2]
-    train_image_meta_paths = image_meta_paths[:2]
-    train_mask_paths = mask_paths[:2]
-
-    val_image_file_paths = [image_file_paths[2]]
-    val_image_meta_paths = [image_meta_paths[2]]
-    val_mask_paths = [mask_paths[2]]
-
-    test_image_file_paths = [image_file_paths[3]]
-    test_image_meta_paths = [image_meta_paths[3]]
-    test_mask_paths = [mask_paths[3]]
+    image_file_path_dict, mask_path_dict = get_data_paths(config)
+    num_workers = config['num_workers']
+    # mean_std_yaml_file = Path(config['root_dir']) / config['mean_std_file']
+    # mean_std_dict = read_mean_std_from_yaml(mean_std_yaml_file)
+    patches_per_image = config['patches_per_image']
+    # labels_map = {
+    #     0: 'Void',
+    #     1: 'Ground & Water',
+    #     2: 'Stem',
+    #     3: 'Canopy',
+    #     4: 'Roots',
+    #     5: 'Objects'
+    # }
 
     # ---- Define Albumentations transforms ----
-    train_transform = A.Compose([
-                                    ChannelShuffleGroups(groups=[[0, 1, 2, 3, 4], [5, 6, 7]], p=0.5),
-                                    A.Resize(height=512, width=512),
-                                    A.HorizontalFlip(p=0.5),
-                                    A.VerticalFlip(p=0.5),
-                                    A.RandomRotate90(p=0.5),
-                                    A.ShiftScaleRotate(shift_limit=0.0625, scale_limit=0.15, rotate_limit=30, p=0.5),
-                                    # BrightnessContrastOnlyFirst3Channels(p=0.5), # # !!!!put it aside for now.
-                                    # A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0), # !!!!put mean and std aside for now.
-                                    #             std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)),
-                                    A.pytorch.ToTensorV2()
-                                ],
-                                additional_targets={'mask': 'mask'})
+    train_transform = trasform_by_channls(input_channels=input_channels)
 
     val_transform = A.Compose([
-                                A.Resize(height=512, width=512),
                                 # A.Normalize(
-                                #     mean=(0.485, 0.456, 0.406, 0.0, 0.0, 0.0),
-                                #     std=(0.229, 0.224, 0.225, 1.0, 1.0, 1.0)
+                                #     mean=mean_std_dict['mean'],
+                                #     std=mean_std_dict['std']
                                 # ),
                                 ToTensorV2()
                             ], additional_targets={'mask': 'mask'})
 
-    # ---- Create dataset and dataloader ----
-    train_dataset = SegmentationPatchDataset(
-        image_file_paths=train_image_file_paths,
-        image_meta_paths=train_image_meta_paths,
-        mask_paths=train_mask_paths,
-        patch_splits=5,
-        transform=train_transform,  # Albumentations for training
-        labels_map=labels_map
-    )
+    # ---- Create dataloaders for train, val, and test ----
+    dataloaders = {}
+    for split in ['train', 'val', 'test']:
+        image_file_paths = image_file_path_dict[split]
+        mask_paths = mask_path_dict[split]
 
-    val_dataset = SegmentationPatchDataset(
-        image_file_paths=val_image_file_paths,
-        image_meta_paths=val_image_meta_paths,
-        mask_paths=val_mask_paths,
-        patch_splits=5,
-        transform=val_transform,  
-        labels_map=labels_map
-    )
+        dataset = SegmentationPatchDataset(
+            image_file_paths=image_file_paths,
+            input_channels=input_channels,
+            mask_paths=mask_paths,
+            patch_splits=patches_per_image,
+            transform=train_transform if split == 'train' else val_transform,
+            # labels_map=labels_map
+        )
 
-    test_dataset = SegmentationPatchDataset(
-        image_file_paths=test_image_file_paths,
-        image_meta_paths=test_image_meta_paths,
-        mask_paths=test_mask_paths,
-        patch_splits=5,
-        transform=val_transform,  
-        labels_map=labels_map
-    )
+        bt_size = patches_per_image if split == 'test' else config['train_batch_size']
+        dataloaders[split] = DataLoader(dataset, 
+                                        batch_size=bt_size, 
+                                        shuffle=True if split == 'train' else False, 
+                                        num_workers=num_workers)
 
-
-
-    train_loader = DataLoader(train_dataset, batch_size=5, shuffle=True, num_workers=2)
-    val_loader = DataLoader(val_dataset, batch_size=5, shuffle=False, num_workers=2)
-    test_loader = DataLoader(test_dataset, batch_size=5, shuffle=False, num_workers=2)
-
+    train_loader = dataloaders['train']
+    val_loader = dataloaders['val']
+    test_loader = dataloaders['test']
     return train_loader, val_loader, test_loader
+
+
+
+
+if __name__ == "__main__":
+    config_file = 'params/paths_zmachine_inlut3d.json'
+    with open(config_file, 'r') as f:
+        config = json.load(f)
+    
+    input_channels = config['input_channels_ls'][0]
+    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels)
+    print(f"Training data: {len(train_loader.dataset)} samples")
+    print(f"Validation data: {len(val_loader.dataset)} samples")
+    print(f"Test data: {len(test_loader.dataset)} samples")
+    print("Data loaders created successfully!")
+    print("Sample batch from training loader:")
+    imgs, masks = next(iter(train_loader))
+    print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+
+    print("Sample batch from validation loader:")
+    imgs, masks = next(iter(val_loader))
+    print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+
+    print("Sample batch from test loader:")
+    imgs, masks = next(iter(test_loader))
+    print(f"Image batch shape: {imgs.shape}, Mask batch shape: {masks.shape}")
+    
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Using device: {device}")
+    

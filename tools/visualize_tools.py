@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
-from prepare_dataset import resize_image_or_mask, NUM_CLASSES
-from tools.load_tools import custom_cmap, get_pil_palette
+from tools.load_tools import get_color_map, get_pil_palette, get_label_map
 from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
 import datetime
 from pathlib import Path
@@ -9,9 +8,12 @@ import numpy as np
 import matplotlib.gridspec as gridspec
 import seaborn as sns
 from matplotlib.cm import get_cmap
+import matplotlib.colors as colors
+from tools.logger_setup import Logger
 
+log = Logger()
 
-def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
+def save_mask_as_image(mask: np.ndarray, mono_path: Path=None, color_path: Path=None):
     """
     Save the mask as a monochrome and color image.
 
@@ -21,70 +23,142 @@ def save_mask_as_image(mask: np.ndarray, mono_path: Path, color_path: Path):
     color_path (Path): Path to save the color image.
     """
     mask = mask.astype(np.uint8)
-    mask_mono = Image.fromarray(mask)
-    mask_mono.save(mono_path)
-    print(f"📸Monochrome mask saved to {mono_path}")
+    mask = Image.fromarray(mask)
+    if mono_path:
+        mask.save(mono_path)
+        log.info(f"☯️ Monochrome mask saved to {mono_path.name}")
 
-    mask_color = Image.fromarray(mask)
-    mask_color.putpalette(get_pil_palette())
-    mask_color.save(color_path)
-    print(f"🎨Color mask saved to {color_path}")
+    if color_path:
+        mask.putpalette(get_pil_palette())
+        mask.save(color_path)
+        log.info(f"🌈 Color mask saved to {color_path.name}")
+
+    assert mono_path or color_path, "At least one path must be provided to save the mask."
 
 
-def visualize_eval_output(img, true_mask, pred_mask, gt_available=True, output_path: Path = None):
+def write_eval_metrics_to_file(eval_metrics: dict, out_dir: Path, key_str:str=''):
+    """
+    Write evaluation metrics to a text file.
+    
+    Args:
+        eval_metrics (dict): Dictionary containing evaluation metrics.
+        out_dir (Path): Directory to save the metrics file.
+    """
+    metrics_path = out_dir / f"eval_metrics_{key_str}.txt"
+    with open(metrics_path, 'w') as f:
+        for key, value in eval_metrics.items():
+            f.write(f"{key}: {value}\n")
+    log.info(f"🗒️ Evaluation metrics saved to {metrics_path.parent.name}/{metrics_path.name}")
+
+def visualize_eval_output(img, 
+                          eval_results: dict, 
+                          input_channels, 
+                          num_classes,
+                          gt_available=True, 
+                          out_dir: Path = None):
     """"
     Visualize the image and masks.
     """
-    N_CLASSES = 6
-    fig, axs = plt.subplots(3, 1, figsize=(10, 6))
+    input_channels_str = '_'.join([str(ch) for ch in input_channels])
+    num_subplots = len(eval_results) + 1
+    fig, axs = plt.subplots(num_subplots, 1, figsize=(8, 4* num_subplots))
+    color_map, _ = get_color_map()
+    subplot_titles = ['Input Image']  # Title for the input image subplot
+    subplot_titles += [key for key in eval_results.keys()]  # Titles for predicted masks
+    for i in range(len(subplot_titles)):
+        if subplot_titles[i] == 'Input Image':
+            axs[i].imshow(img)
+        elif 'mask' in subplot_titles[i]:
+            mask = eval_results[subplot_titles[i]]
+            axs[i].imshow(mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
+        else:
+            axs[i].imshow(eval_results[subplot_titles[i]], cmap='plasma', interpolation='nearest')
+        axs[i].set_title(subplot_titles[i])
+        axs[i].axis('off')        
+    plt.tight_layout()
+    output_path = out_dir / "combined_eval.png"
+    fig.savefig(output_path)
+    log.info(f"😌 Evaluation maps saved to {output_path.name}")
 
-
-    # Compute metrics between true_mask and pred_mask
-    true_flat = true_mask.flatten()
-    pred_flat = pred_mask.flatten()
-    axs_img, axs_true, axs_pred = axs[0], axs[1], axs[2]
+    pred_mask_color_path = out_dir / f"pred_mask_color.png"
+    save_mask_as_image(eval_results['pred_mask'], color_path = pred_mask_color_path)
 
     if gt_available:
-        metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, N_CLASSES)
-        oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
-        
-        pred_title = ' '.join(['Predicted Mask:',
-                    f'oAcc: {oAcc:.4f};',
-                    f'mAcc: {mAcc:.4f};',
-                    f'mIoU: {mIoU:.4f};',
-                    f'FWIoU: {FWIoU:.4f};',
-                    f'dice_coeff: {dice_coefficient:.4f}'])
-        true_title = 'Ground Truth Mask' 
-    else:
-        pred_title = 'Predicted Mask (No GT)'
-        true_title = 'Ground Truth Mask (Not Available)'
+        eval_metrics_dict = calculate_segmentation_statistics(true_flat =  eval_results['true_mask'].flatten(),
+                                                        pred_flat = eval_results['pred_mask'].flatten(),
+                                                        num_classes = num_classes)
+        # save eval_metrics_dict to a text file
+        # metrics_path = out_dir / f"eval_metrics_{timestamp}.txt"
+        # with open(metrics_path, 'w') as f:
+        #     for key, value in eval_metrics_dict.items():
+        #         f.write(f"{key}: {value}\n")
+        # log.info(f"Evaluation metrics saved to {metrics_path}")
+        write_eval_metrics_to_file(eval_metrics_dict, out_dir, key_str=input_channels_str)
+    
+    # # Compute metrics between true_mask and pred_mask
+    # true_flat = true_mask.flatten()
+    # pred_flat = pred_mask.flatten()
+    # num_subplots = 4 if gt_available else 3
 
-    display_channels = [4, 0, 2] # Roughness, Intensity, Range
-    axs_img.imshow(img[:, :, display_channels])
-    axs_img.set_title('Pseudo color stacked from Roughness-Intensity-Range')
-    axs_img.axis('off')
+    # fig, axs = plt.subplots(num_subplots, 1, figsize=(10, 6))
+    
+    
 
-    # For masks, use a discrete colormap to distinguish classes
-    axs_true.imshow(true_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
-    axs_true.set_title(true_title)
-    axs_true.axis('off')
+    # if gt_available:
+    #     metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, num_classes)
+        # oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
+        # confusion_matrix = metric_dict['confusion_matrix']
+        # pred_title = ' '.join(['Predicted Mask\n',
+        #             f'oAcc: {oAcc:.4f};',
+        #             f'mAcc: {mAcc:.4f};',
+        #             f'mIoU: {mIoU:.4f};',
+        #             f'FWIoU: {FWIoU:.4f};',
+        #             f'dice_coeff: {dice_coefficient:.4f}'])
+        # true_title = 'Ground Truth Mask' 
+    # else:
+    #     pred_title = 'Predicted Mask (No GT)'
+    #     true_title = 'Ground Truth Mask (Not Available)'
 
-    axs_pred.imshow(pred_mask, cmap=custom_cmap(), vmin=0, vmax=NUM_CLASSES - 1, interpolation='nearest')
-    axs_pred.set_title(pred_title)
-    axs_pred.axis('off')
+    # axe_img.imshow(img)
+    # axe_img.set_title(f'Input Image {input_channels_str}')
+    # axe_img.axis('off')
+    
+    # # For masks, use a discrete colormap to distinguish classes
+    # axe_true_mask.imshow(true_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
+    # axe_true_mask.set_title(true_title)
+    # axe_true_mask.axis('off')
 
-    plt.tight_layout()
-    # plt.show()
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
-    fig.savefig(output_path)
-    print(f"😌Segmentation map saved to {output_path}")
+    # axe_pred_mask.imshow(pred_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
+    # axe_pred_mask.set_title(pred_title)
+    # axe_pred_mask.axis('off')
 
-    # Save the pred_mask in rbg image.
-    pred_mask_mono_path = output_path.parent / f"pred_mask_mono_{timestamp}.png"
-    pred_mask_color_path = output_path.parent / f"pred_mask_color_{timestamp}.png"
-    save_mask_as_image(pred_mask, pred_mask_mono_path, pred_mask_color_path)
+    # # Plot confusion matrix in axs_confmtx
+    # if gt_available:
+    #     axs_confmtx = axs[3]
+    #     label_map = get_label_map()
+    #     sns.heatmap(confusion_matrix, 
+    #                 annot=True, 
+    #                 fmt='d', 
+    #                 cmap='rainbow', 
+    #                 ax=axs_confmtx, 
+    #                 cbar=True)
+    #     axs_confmtx.set_title('Confusion Matrix')
+    #     axs_confmtx.set_xlabel('Predicted Class')
+    #     axs_confmtx.set_ylabel('True Class')
+    #     axs_confmtx.set_xticklabels([label_map[i] for i in range(num_classes)], rotation=30, ha='right')
+    #     axs_confmtx.set_yticklabels([label_map[i] for i in range(num_classes)], rotation=0)
 
+
+    # plt.tight_layout()
+    # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    # output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
+    # fig.savefig(output_path)
+    # log.info(f"😌Segmentation map saved to {output_path}")
+
+    # # Save the pred_mask in rbg image.
+    # pred_mask_mono_path = output_path.parent / f"pred_mask_mono_{timestamp}.png"
+    # pred_mask_color_path = output_path.parent / f"pred_mask_color_{timestamp}.png"
+    # save_mask_as_image(pred_mask, pred_mask_mono_path, pred_mask_color_path)
 
 def plot_training_validation_losses(train_losses, val_losses, plt_save_path, clip_val_loss=True):
     """
@@ -102,13 +176,13 @@ def plot_training_validation_losses(train_losses, val_losses, plt_save_path, cli
 
     # Prevent empty input or division by zero
     if len(train_losses) == 0 or len(val_losses) == 0:
-        print("Error: Empty loss lists.")
+        log.info("Error: Empty loss lists.")
         return
 
     if clip_val_loss:
         max_train = max(train_losses)
         val_losses = val_losses.clip(max=3*max_train)
-        print(f"Clipping validation loss to max of 3 times the max training loss: {3*max_train}")
+        log.info(f"Clipping validation loss to max of 3 times the max training loss: {3*max_train}")
 
     plt.figure(figsize=(8, 5))
     plt.plot(train_losses, label='Train Loss', marker='o')
@@ -125,7 +199,7 @@ def plot_training_validation_losses(train_losses, val_losses, plt_save_path, cli
     plt.savefig(plt_save_path)
     plt.close()
 
-    print(f"---- Loss plot saved at: {plt_save_path} ----")
+    log.info(f"---- Loss plot saved at: {plt_save_path} ----")
 
 
 def plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, plt_save_path):
@@ -146,7 +220,7 @@ def plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_
 
     # Prevent empty input or division by zero
     if len(train_oAccus) == 0 or len(val_oAccus) == 0:
-        print("Error: Empty metric lists.")
+        log.info("Error: Empty metric lists.")
         return
 
     plt.figure(figsize=(8, 5))
@@ -166,7 +240,7 @@ def plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_
     plt.savefig(plt_save_path)
     plt.close()
 
-    print(f"---- Metrics plot saved at: {plt_save_path} ----")
+    log.info(f"---- Metrics plot saved at: {plt_save_path} ----")
 
 
 
@@ -230,7 +304,7 @@ def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray,
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     output_path = Path(f"outputs/uncertainty_error_{timestamp}.png") if output_path is None else output_path
     fig.savefig(output_path)
-    print(f"😉Uncertainty and error map saved to {output_path}")
+    log.info(f"😉Uncertainty and error map saved to {output_path}")
     # plt.show()
 
     return metrics_by_threshold
@@ -269,7 +343,7 @@ def plot_correlation_matrix(corr_matrix,
 
     output_path = Path(f"outputs/correlation_matrix_{output_stem}.png")
     corr_fig.savefig(output_path)
-    print(f"1️Correlation matrix saved to {output_path}")
+    log.info(f"1️Correlation matrix saved to {output_path}")
 
 
 def plot_pca_components(pcs, output_stem = None):
@@ -303,7 +377,7 @@ def plot_pca_components(pcs, output_stem = None):
 
     output_path = Path(f"outputs/pca_components_{output_stem}.png")
     fig.savefig(output_path)
-    print(f"2️PCA/MNF/ICA components saved to {output_path}")
+    log.info(f"2️PCA/MNF/ICA components saved to {output_path}")
     
 
 def plot_rgb_permutations(components, output_stem=None):
@@ -343,7 +417,7 @@ def plot_rgb_permutations(components, output_stem=None):
     if output_stem:
         output_path = f"outputs/{output_stem}_PCs_permutations.png"
         fig.savefig(output_path)
-        print(f"3️Saved RGB permutations plot to {output_path}")
+        log.info(f"3️Saved RGB permutations plot to {output_path}")
 
 
 def plot_channel_histograms(image_cube, channel_names=None, bins=256, colormap='tab10'):

@@ -81,8 +81,9 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
     """
     Calculate evaluation metrics for semantic segmentation.
     """
-    conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+    original_conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
 
+    conf_mtx = original_conf_mtx.copy()
     # Keep only the classes that appear in either true or pred
     mask = (conf_mtx.sum(axis=0) + conf_mtx.sum(axis=1)) > 0
     conf_mtx = conf_mtx[mask][:, mask]
@@ -97,7 +98,7 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
 
     # IoU
     union = conf_mtx.sum(axis=1) + conf_mtx.sum(axis=0) - intersection
-    IoU = intersection / np.maximum(union, 1)
+    IoU = np.round(intersection / np.maximum(union, 1),  4)
     mIoU = np.nanmean(IoU)
 
     # Frequency Weighted IoU
@@ -110,12 +111,13 @@ def calculate_segmentation_statistics(true_flat: np.ndarray,
     dice_coefficient = np.nanmean(dice)
 
     return {
-        'confusion_matrix': conf_mtx,
-        'oAcc': oAccu,
-        'mAcc': mAcc,
-        'mIoU': mIoU,
-        'FWIoU': FWIoU,
-        'dice_coefficient': dice_coefficient
+        'confusion_matrix': original_conf_mtx,
+        'oAcc': round(oAccu, 4),
+        'mAcc': round(mAcc, 4),
+        'mIoU': round(mIoU, 4),
+        'IoU_per_class': IoU,
+        'FWIoU': round(FWIoU, 4),
+        'dice_coefficient': round(dice_coefficient, 4)
     }
 
 
@@ -160,7 +162,7 @@ def compute_band_correlation(image):
     if image.ndim != 3:
         raise ValueError("Input image must have 3 dimensions (C, H, W)")
 
-    C, H, W = image.shape
+    C = image.shape[0]
     reshaped = image.reshape(C, -1)  # Flatten spatial dimensions
     corr_matrix = np.corrcoef(reshaped)
 
