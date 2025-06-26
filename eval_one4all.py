@@ -146,7 +146,7 @@ def stitch_buffered_tiles(tiles: torch.Tensor, buf_mask_ls: list[torch.Tensor]) 
         full = full.squeeze(0)  # [H, W_total] for label/pred map
 
     
-    return full.cpu().numpy()  # Convert to numpy array
+    return full.cpu().numpy()
 
 
 
