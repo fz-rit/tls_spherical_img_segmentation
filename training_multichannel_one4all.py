@@ -3,13 +3,10 @@ import copy
 import segmentation_models_pytorch as smp
 import torch
 from prepare_dataset import load_data
-import torch.nn as nn
 from pathlib import Path
-import json
 import numpy as np
 from tools.metrics_tools import calc_oAccu_mIoU
 from tools.visualize_tools import plot_training_validation_losses, plot_training_validation_metrics
-from segmentation_models_pytorch.decoders.unetplusplus.decoder import UnetPlusPlusDecoder
 from tools.load_tools import save_model_locally, dump_dict_to_yaml, CONFIG
 import time
 from pprint import pformat

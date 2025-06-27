@@ -1,5 +1,5 @@
 from pathlib import Path
-from training_one4all import build_model_for_multi_channels
+from tools.feature_fusion_helper import build_model_for_multi_channels
 from ptflops import get_model_complexity_info
 from pprint import pprint
 import json

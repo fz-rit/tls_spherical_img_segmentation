@@ -6,6 +6,10 @@ from skimage.morphology import binary_erosion
 from sklearn.metrics import confusion_matrix, mutual_info_score
 from typing import Tuple
 from sklearn.decomposition import PCA, FastICA
+from pathlib import Path
+from tools.logger_setup import Logger
+
+log = Logger()
 
 def compare_binary_image_metrics(src_img: np.ndarray, target_image: np.ndarray) -> dict:
     assert src_img.shape == target_image.shape, f"Binary images must have the same shape: {src_img.shape} vs {target_image.shape}"
@@ -260,6 +264,22 @@ def compute_ica(image, n_components=3):
     ica_components = ica_result.T.reshape(n_components, H, W)
 
     return ica_components
+
+
+def uncertainty_vs_error(eval_results, verbose=True):
+
+    true_mask = eval_results['true_mask']
+    pred_mask = eval_results['pred_mask']
+    uncertainty_map = eval_results['mutual_info']
+    error_map = np.zeros_like(true_mask)
+    error_map[true_mask != pred_mask] = 1
+    metrics_dict = compare_binary_maps(uncertainty_map, error_map)
+
+    if verbose:
+        log.info(f"Metrics comparing uncertainty map with error map: {metrics_dict}")
+
+    return uncertainty_map, error_map, metrics_dict
+
 
 if __name__ == "__main__":
     img1 = np.random.randint(0, 2, (256, 256))

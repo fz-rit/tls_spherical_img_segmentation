@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
-from tools.visualize_tools import visualize_eval_output, write_eval_metrics_to_file
+from tools.visualize_tools import visualize_eval_output, write_eval_metrics_to_file, compare_uncertainty_with_error_map
 from tools.metrics_tools import calculate_segmentation_statistics
 import time
 import numpy as np
@@ -212,7 +212,7 @@ def evaluate_single_img(img_tiles,
     if show_now:
         plt.show()
 
-    return stitched_true_mask, stitched_pred_mask
+    return eval_results
     
 
 
@@ -238,18 +238,18 @@ def evaluate_imgs(config: dict, input_channels: list):
         key_str = Path(test_loader.dataset.image_file_paths[test_img_idx]).stem.split('_')[-3][-4:] # the four numbers represent the test image dataset.
         img_eval_out_dir = out_dir / key_str
         img_eval_out_dir.mkdir(parents=False, exist_ok=True)
-        stitched_true_mask, stitched_pred_mask = evaluate_single_img(imgs, 
-                                                                     true_masks, 
-                                                                     buf_masks,
-                                                                     ensamble_models,
-                                                                     config, 
-                                                                     input_channels,
-                                                                     eval_gt_available, 
-                                                                     img_eval_out_dir, 
-                                                                     show_now=show_now)  
-        
-        true_mask_ls.append(stitched_true_mask.flatten())
-        pred_mask_ls.append(stitched_pred_mask.flatten())
+        eval_results = evaluate_single_img(imgs, 
+                                             true_masks, 
+                                             buf_masks,
+                                             ensamble_models,
+                                             config, 
+                                             input_channels,
+                                            eval_gt_available, 
+                                            img_eval_out_dir, 
+                                            show_now=show_now)
+        compare_uncertainty_with_error_map(eval_results, output_dir=img_eval_out_dir)
+        true_mask_ls.append(eval_results['true_mask'].flatten())
+        pred_mask_ls.append(eval_results['pred_mask'].flatten())
 
     true_mask = np.concatenate(true_mask_ls) 
     pred_mask = np.concatenate(pred_mask_ls)

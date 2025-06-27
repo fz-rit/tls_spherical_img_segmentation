@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from tools.load_tools import get_color_map, get_pil_palette, get_label_map
-from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
+from tools.metrics_tools import calculate_segmentation_statistics, uncertainty_vs_error
 import datetime
 from pathlib import Path
 from PIL import Image
@@ -73,6 +73,9 @@ def visualize_eval_output(img,
             axs[i].imshow(mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
         else:
             axs[i].imshow(eval_results[subplot_titles[i]], cmap='plasma', interpolation='nearest')
+            if subplot_titles[i] == 'mutual_info':
+                cbar = plt.colorbar(axs[i].images[0], ax=axs[i], orientation='vertical', fraction=0.02, pad=0.04)
+                cbar.set_label('Uncertainty (Mutual Information)', rotation=270, labelpad=15)
         axs[i].set_title(subplot_titles[i])
         axs[i].axis('off')        
     plt.tight_layout()
@@ -87,78 +90,8 @@ def visualize_eval_output(img,
         eval_metrics_dict = calculate_segmentation_statistics(true_flat =  eval_results['true_mask'].flatten(),
                                                         pred_flat = eval_results['pred_mask'].flatten(),
                                                         num_classes = num_classes)
-        # save eval_metrics_dict to a text file
-        # metrics_path = out_dir / f"eval_metrics_{timestamp}.txt"
-        # with open(metrics_path, 'w') as f:
-        #     for key, value in eval_metrics_dict.items():
-        #         f.write(f"{key}: {value}\n")
-        # log.info(f"Evaluation metrics saved to {metrics_path}")
         write_eval_metrics_to_file(eval_metrics_dict, out_dir, key_str=input_channels_str)
     
-    # # Compute metrics between true_mask and pred_mask
-    # true_flat = true_mask.flatten()
-    # pred_flat = pred_mask.flatten()
-    # num_subplots = 4 if gt_available else 3
-
-    # fig, axs = plt.subplots(num_subplots, 1, figsize=(10, 6))
-    
-    
-
-    # if gt_available:
-    #     metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, num_classes)
-        # oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
-        # confusion_matrix = metric_dict['confusion_matrix']
-        # pred_title = ' '.join(['Predicted Mask\n',
-        #             f'oAcc: {oAcc:.4f};',
-        #             f'mAcc: {mAcc:.4f};',
-        #             f'mIoU: {mIoU:.4f};',
-        #             f'FWIoU: {FWIoU:.4f};',
-        #             f'dice_coeff: {dice_coefficient:.4f}'])
-        # true_title = 'Ground Truth Mask' 
-    # else:
-    #     pred_title = 'Predicted Mask (No GT)'
-    #     true_title = 'Ground Truth Mask (Not Available)'
-
-    # axe_img.imshow(img)
-    # axe_img.set_title(f'Input Image {input_channels_str}')
-    # axe_img.axis('off')
-    
-    # # For masks, use a discrete colormap to distinguish classes
-    # axe_true_mask.imshow(true_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
-    # axe_true_mask.set_title(true_title)
-    # axe_true_mask.axis('off')
-
-    # axe_pred_mask.imshow(pred_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
-    # axe_pred_mask.set_title(pred_title)
-    # axe_pred_mask.axis('off')
-
-    # # Plot confusion matrix in axs_confmtx
-    # if gt_available:
-    #     axs_confmtx = axs[3]
-    #     label_map = get_label_map()
-    #     sns.heatmap(confusion_matrix, 
-    #                 annot=True, 
-    #                 fmt='d', 
-    #                 cmap='rainbow', 
-    #                 ax=axs_confmtx, 
-    #                 cbar=True)
-    #     axs_confmtx.set_title('Confusion Matrix')
-    #     axs_confmtx.set_xlabel('Predicted Class')
-    #     axs_confmtx.set_ylabel('True Class')
-    #     axs_confmtx.set_xticklabels([label_map[i] for i in range(num_classes)], rotation=30, ha='right')
-    #     axs_confmtx.set_yticklabels([label_map[i] for i in range(num_classes)], rotation=0)
-
-
-    # plt.tight_layout()
-    # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    # output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
-    # fig.savefig(output_path)
-    # log.info(f"😌Segmentation map saved to {output_path}")
-
-    # # Save the pred_mask in rbg image.
-    # pred_mask_mono_path = output_path.parent / f"pred_mask_mono_{timestamp}.png"
-    # pred_mask_color_path = output_path.parent / f"pred_mask_color_{timestamp}.png"
-    # save_mask_as_image(pred_mask, pred_mask_mono_path, pred_mask_color_path)
 
 def plot_training_validation_losses(train_losses, val_losses, plt_save_path, clip_val_loss=True):
     """
@@ -244,9 +177,8 @@ def plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_
 
 
 
-def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray, 
-                                       error_map: np.ndarray,
-                                       output_path: Path = None):
+def compare_uncertainty_with_error_map(eval_results,
+                                       output_dir: Path = None):
     """
     Compare uncertainty map with error map and visualize metrics as scatter plots.
     
@@ -257,8 +189,9 @@ def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray,
     Returns:
     None
     """
-    # Simulate or fetch the metrics_by_threshold
-    metrics_by_threshold = compare_binary_maps(uncertainty_map, error_map)
+    # # Simulate or fetch the metrics_by_threshold
+    # metrics_by_threshold = compare_binary_maps(uncertainty_map, error_map)
+    uncertainty_map, error_map, metrics_by_threshold = uncertainty_vs_error(eval_results, verbose=False)
     
     fig = plt.figure(figsize=(16, 10))
     outer = gridspec.GridSpec(2, 2, height_ratios=[2, 3], hspace=0.3, wspace=0.3)
@@ -302,7 +235,7 @@ def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray,
     plt.colorbar(unct_map_im, ax=ax1, orientation='vertical', fraction=0.02, pad=0.04)
 
     timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = Path(f"outputs/uncertainty_error_{timestamp}.png") if output_path is None else output_path
+    output_path = output_dir / f"uncertainty_error_{timestamp}.png"
     fig.savefig(output_path)
     log.info(f"😉Uncertainty and error map saved to {output_path}")
     # plt.show()
