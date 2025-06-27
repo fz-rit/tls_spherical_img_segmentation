@@ -277,7 +277,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
 
 
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine_mangrove3d.json'
+    config_file = 'params/paths_zmachine_mangrove3d_multichannel.json'
     with open(config_file, 'r') as f:
         config = json.load(f)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")

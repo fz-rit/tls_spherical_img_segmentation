@@ -7,7 +7,7 @@ import yaml
 from pathlib import Path
 import numpy as np
 
-config_file = 'params/paths_zmachine_mangrove3d.json'
+config_file = 'params/paths_zmachine_mangrove3d_multichannel.json'
 with open(config_file, 'r') as f:
     CONFIG = json.load(f)
 

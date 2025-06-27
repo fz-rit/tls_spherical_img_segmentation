@@ -1,7 +1,8 @@
 import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, depad_tensor_vertical_only
-from training_one4all import build_model_for_multi_channels
+# from training_one4all import build_model_for_multi_channels
+from tools.feature_fusion_helper import build_model_for_multi_channels
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
