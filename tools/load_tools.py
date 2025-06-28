@@ -1,5 +1,5 @@
 from collections import Counter
-from prepare_dataset import load_data
+# from prepare_dataset import load_data
 import json
 from matplotlib.colors import ListedColormap
 import torch
@@ -12,26 +12,26 @@ with open(config_file, 'r') as f:
     CONFIG = json.load(f)
 
 
-def checkout_class_freq(config, num_classes = 5):
-    train_dataset, _, _ = load_data(config)
-    labels_map = train_dataset.labels_map
+# def checkout_class_freq(config, num_classes = 5):
+#     train_dataset, _, _ = load_data(config)
+#     labels_map = train_dataset.labels_map
     
 
-    all_labels = []
-    for img_patch, mask_patch in train_dataset:
-        # mask_patch is of shape (H, W), containing class indices
-        flat_mask = mask_patch.view(-1)
-        all_labels.extend(flat_mask.tolist())
+#     all_labels = []
+#     for img_patch, mask_patch in train_dataset:
+#         # mask_patch is of shape (H, W), containing class indices
+#         flat_mask = mask_patch.view(-1)
+#         all_labels.extend(flat_mask.tolist())
 
-    class_counts = Counter(all_labels)
-    total_pixels = sum(class_counts.values())
+#     class_counts = Counter(all_labels)
+#     total_pixels = sum(class_counts.values())
 
-    print("Class Frequencies:")
-    class_freq = {}
-    for c in range(num_classes):
-        freq = class_counts.get(c, 0) / total_pixels
-        class_freq[c] = freq
-        print(f"Class {c}-{labels_map[c]}: {freq*100:.2f}% of pixels")
+#     print("Class Frequencies:")
+#     class_freq = {}
+#     for c in range(num_classes):
+#         freq = class_counts.get(c, 0) / total_pixels
+#         class_freq[c] = freq
+#         print(f"Class {c}-{labels_map[c]}: {freq*100:.2f}% of pixels")
 
 
 

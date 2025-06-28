@@ -12,6 +12,7 @@ import json
 import yaml
 from pprint import pprint
 from tools.get_mean_std import normalize_img_per_channel
+
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 
@@ -201,15 +202,10 @@ def trasform_by_channls(input_channels:list, p=0.5):
     
     p: probability of applying the transform
     """
-    if len(input_channels) == 3:
-        shuffle_groups = [[0, 1, 2]]
-    elif len(input_channels) == 6:
-        shuffle_groups = [[0, 1, 2], [3, 4, 5]]
-    elif len(input_channels) == 9:
-        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
-    elif len(input_channels) == 15:
-        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8], 
-                          [9, 10, 11], [12, 13, 14]]
+    if len(input_channels) % 3 != 0:
+        raise ValueError(f"Number of input channels must be divisible by 3, got {len(input_channels)}")
+    
+    shuffle_groups = [[i, i+1, i+2] for i in range(0, len(input_channels), 3)]
 
     transform = A.Compose([
         ChannelShuffleGroups(groups=shuffle_groups, p=p),
@@ -277,15 +273,12 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
 
 
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine_mangrove3d_multichannel.json'
-    with open(config_file, 'r') as f:
-        config = json.load(f)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-        
-    input_channels = config['input_channels_ls'][0]
-    train_subset_cnt = config.get('train_subset_cnt', 30)
-    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
+    from tools.load_tools import CONFIG
+    input_channels = CONFIG['input_channels_ls'][0]
+    train_subset_cnt = CONFIG.get('train_subset_cnt', 30)
+    train_loader, val_loader, test_loader = load_data(CONFIG, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
     print(f"Train samples: {len(train_loader.dataset)}")
     print(f"Val samples: {len(val_loader.dataset)}")
     print(f"Test samples: {len(test_loader.dataset)}")

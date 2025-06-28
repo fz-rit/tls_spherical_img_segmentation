@@ -138,7 +138,7 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
         val_oAccus.append(val_oAccu)
         val_mIoUs.append(val_mIoU)
 
-        log.info(f"Epoch {epoch + 1}/{epoch_num} | "
+        log.info(f" {epoch + 1}/{epoch_num} | "
               f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
               f"Train oAcc: {train_oAccu:.4f}, mIoU: {train_mIoU:.4f} | "
               f"Val oAcc: {val_oAccu:.4f}, mIoU: {val_mIoU:.4f}")

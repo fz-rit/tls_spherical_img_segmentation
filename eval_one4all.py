@@ -34,7 +34,8 @@ def load_ensamble_models(config: dict, input_channels:list) -> smp.Unet:
         encoder_name = model_setup_dict['encoder']
         model_dir = Path(config['root_dir']) / config['model_dir'] / model_parent_dir
         channels_str = '_'.join([str(ch) for ch in input_channels])
-        model_file = next(model_dir.glob(f"*best_{channels_str}_*.pth"), None)
+        pattern = f"*best_{channels_str}_????????_??????.pth"
+        model_file = next(model_dir.glob(pattern), None)
         if model_file.exists():
             model = build_model_for_multi_channels(model_name=model_name,
                                             encoder_name=encoder_name,
