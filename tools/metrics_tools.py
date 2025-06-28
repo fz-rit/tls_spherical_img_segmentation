@@ -6,6 +6,7 @@ from skimage.morphology import binary_erosion
 from sklearn.metrics import confusion_matrix, mutual_info_score
 from typing import Tuple
 from sklearn.decomposition import PCA, FastICA
+from sklearn.metrics import precision_recall_curve, average_precision_score
 from pathlib import Path
 from tools.logger_setup import Logger
 
@@ -279,6 +280,50 @@ def uncertainty_vs_error(eval_results, verbose=True):
         log.info(f"Metrics comparing uncertainty map with error map: {metrics_dict}")
 
     return uncertainty_map, error_map, metrics_dict
+
+def calc_precision_recall_curve(y_true, y_scores):
+    """
+    Calculate precision-recall curve and AUPRC.
+
+    Args:
+        y_true (np.ndarray): True binary labels (1D).
+        y_scores (np.ndarray): Predicted scores/probabilities (1D).
+
+    Returns:
+        dict: Dictionary containing precision, recall, thresholds, and AUPRC.
+    """
+    # Flatten if necessary
+    y_true = np.ravel(y_true)
+    y_scores = np.ravel(y_scores)
+
+    if y_true.shape != y_scores.shape:
+        raise ValueError("Shapes of y_true and y_scores must match.")
+    
+    if not np.all(np.isin(y_true, [0, 1])):
+        raise ValueError("y_true must be binary (0 or 1).")
+    
+    def quantize_scores(y_scores, n_bins=100):
+        """
+        Quantize y_scores into n_bins evenly spaced values between min and max.
+        """
+        min_score, max_score = np.min(y_scores), np.max(y_scores)
+        bins = np.linspace(min_score, max_score, n_bins)
+        quantized = np.digitize(y_scores, bins, right=True)
+        return bins[quantized - 1]  # map back to bin values
+    
+
+    quantized_scores = quantize_scores(y_scores, n_bins=100)
+    top_99th_percentile = np.percentile(quantized_scores, 99.6)
+    quantized_scores[quantized_scores > top_99th_percentile] = top_99th_percentile
+    precision, recall, thresholds = precision_recall_curve(y_true, quantized_scores)
+    auprc = average_precision_score(y_true, quantized_scores)
+
+    return {
+        'precision': precision,
+        'recall': recall,
+        'thresholds': thresholds,
+        'auprc': auprc
+    }
 
 
 if __name__ == "__main__":

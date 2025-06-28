@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from tools.load_tools import get_color_map, get_pil_palette, get_label_map
-from tools.metrics_tools import calculate_segmentation_statistics, uncertainty_vs_error
+from tools.metrics_tools import calculate_segmentation_statistics, uncertainty_vs_error, calc_precision_recall_curve
 import datetime
 from pathlib import Path
 from PIL import Image
@@ -12,6 +12,16 @@ import matplotlib.colors as colors
 from tools.logger_setup import Logger
 
 log = Logger()
+
+plt.rcParams.update({
+    'font.size': 12,         # base font size
+    'axes.titlesize': 12,    # title size
+    'axes.labelsize': 10,    # x/y label size
+    'xtick.labelsize': 9,
+    'ytick.labelsize': 9,
+    'legend.fontsize': 9,
+    'figure.titlesize': 12
+})
 
 def save_mask_as_image(mask: np.ndarray, mono_path: Path=None, color_path: Path=None):
     """
@@ -72,10 +82,8 @@ def visualize_eval_output(img,
             mask = eval_results[subplot_titles[i]]
             axs[i].imshow(mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
         else:
-            axs[i].imshow(eval_results[subplot_titles[i]], cmap='plasma', interpolation='nearest')
-            if subplot_titles[i] == 'mutual_info':
-                cbar = plt.colorbar(axs[i].images[0], ax=axs[i], orientation='vertical', fraction=0.02, pad=0.04)
-                cbar.set_label('Uncertainty (Mutual Information)', rotation=270, labelpad=15)
+            axs[i].imshow(eval_results[subplot_titles[i]], cmap='hot', interpolation='nearest')
+            cbar = plt.colorbar(axs[i].images[0], ax=axs[i], orientation='horizontal', fraction=0.08, pad=0.04, aspect=20)
         axs[i].set_title(subplot_titles[i])
         axs[i].axis('off')        
     plt.tight_layout()
@@ -178,7 +186,8 @@ def plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_
 
 
 def compare_uncertainty_with_error_map(eval_results,
-                                       output_dir: Path = None):
+                                       output_dir: Path = None, 
+                                       save_maps: bool = False):
     """
     Compare uncertainty map with error map and visualize metrics as scatter plots.
     
@@ -189,10 +198,25 @@ def compare_uncertainty_with_error_map(eval_results,
     Returns:
     None
     """
-    # # Simulate or fetch the metrics_by_threshold
-    # metrics_by_threshold = compare_binary_maps(uncertainty_map, error_map)
     uncertainty_map, error_map, metrics_by_threshold = uncertainty_vs_error(eval_results, verbose=False)
-    
+
+    if save_maps:
+        uncertainty_map_path = output_dir / "uncertainty_map.png"
+        error_map_path = output_dir / "error_map.png"
+        plt.imsave(uncertainty_map_path, uncertainty_map, cmap='hot', vmin=uncertainty_map.min(), vmax=uncertainty_map.max())
+        plt.imsave(error_map_path, error_map, cmap='gray', vmin=0, vmax=1)
+        log.info(f"🗺️ Uncertainty map saved to {uncertainty_map_path.name}")
+        log.info(f"🗺️ Error map saved to {error_map_path.name}")
+
+    for title_str in ['total_uncertainty', 'var_based_epistemic', 'mutual_info']:
+        if title_str in eval_results:
+            log.info(f"Plotting precision-recall curve for {title_str}")
+            plot_precision_recall_curve(y_true=error_map, 
+                                        y_scores=eval_results[title_str], 
+                                        output_dir=output_dir, title_str=title_str)
+        else:
+            raise ValueError(f"Title string '{title_str}' not found in eval_results.")
+
     fig = plt.figure(figsize=(16, 10))
     outer = gridspec.GridSpec(2, 2, height_ratios=[2, 3], hspace=0.3, wspace=0.3)
 
@@ -241,6 +265,45 @@ def compare_uncertainty_with_error_map(eval_results,
     # plt.show()
 
     return metrics_by_threshold
+
+
+def plot_precision_recall_curve(y_true, y_scores, output_dir: Path = None, 
+                                title_str: str = ""):
+    """
+    Plot and save the precision-recall curve.
+
+    Parameters:
+    -----------
+    y_true : np.ndarray
+        Ground truth binary labels.
+
+    y_scores : np.ndarray
+        Predicted scores or probabilities.
+
+    output_dir : Path
+        Directory to save the plot.
+
+    title : str
+        Title of the plot.
+
+    output_stem : str
+        Stem for the output filename.
+    """
+
+    pr_dict = calc_precision_recall_curve(y_true, y_scores)  # Ensure the function is called to compute precision and recall
+    fig = plt.figure(figsize=(4, 3))
+    plt.plot(pr_dict['recall'], pr_dict['precision'], marker='o', label=f"AUPRC={pr_dict['auprc']:.3f}")
+    plt.xlabel('Recall')
+    plt.ylabel('Precision')
+    plt.title(title_str)
+    plt.grid(True)
+    plt.legend()
+
+    output_path = output_dir / f"precision_recall_curve_{title_str}.png"
+    fig.savefig(output_path, bbox_inches='tight', dpi=300)
+    log.info(f"📈 Precision-Recall curve saved to {output_path}")
+    
+    plt.close()
 
 
 

@@ -23,12 +23,9 @@ image_cube = image_cube.transpose(2, 0, 1) # Change to (C, H, W)
 
 
 image_cube = np.concatenate([image_cube[[0,1,2], :, :], image_cube[[5, 6, 7], :, :]], axis=0) # delete 3rd and 4th bands; Curvature and Roughness
-# print(image_cube.shape)
 band_names = ['Intensity', 
             'Z Map Inverse', 
             'Range', 
-            # 'Curvature', 
-            # 'Roughness', 
             'Rn',
             'Gn',
             'Bn']

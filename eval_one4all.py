@@ -247,7 +247,7 @@ def evaluate_imgs(config: dict, input_channels: list):
                                             eval_gt_available, 
                                             img_eval_out_dir, 
                                             show_now=show_now)
-        compare_uncertainty_with_error_map(eval_results, output_dir=img_eval_out_dir)
+        compare_uncertainty_with_error_map(eval_results, output_dir=img_eval_out_dir, save_maps=True)
         true_mask_ls.append(eval_results['true_mask'].flatten())
         pred_mask_ls.append(eval_results['pred_mask'].flatten())
 
