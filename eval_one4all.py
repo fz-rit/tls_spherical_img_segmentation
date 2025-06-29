@@ -11,12 +11,13 @@ from tools.visualize_tools import visualize_eval_output, write_eval_metrics_to_f
 from tools.metrics_tools import calculate_segmentation_statistics
 import time
 import numpy as np
-from tools.load_tools import CONFIG
+# from tools.load_tools import CONFIG
+from prepare_dataset import CONFIG
 from tools.logger_setup import Logger
 
 log = Logger()
 
-def load_ensamble_models(config: dict, input_channels:list) -> smp.Unet:
+def load_ensemble_models(config: dict, input_channels:list, eval_out_root_dir: Path) -> smp.Unet:
     """
     Load the trained model.
 
@@ -32,7 +33,7 @@ def load_ensamble_models(config: dict, input_channels:list) -> smp.Unet:
         model_parent_dir = model_setup_dict['name']
         model_name = model_setup_dict['arch']
         encoder_name = model_setup_dict['encoder']
-        model_dir = Path(config['root_dir']) / config['model_dir'] / model_parent_dir
+        model_dir = eval_out_root_dir / config['model_dir'] / model_parent_dir
         channels_str = '_'.join([str(ch) for ch in input_channels])
         pattern = f"*best_{channels_str}_????????_??????.pth"
         model_file = next(model_dir.glob(pattern), None)
@@ -217,12 +218,13 @@ def evaluate_single_img(img_tiles,
     
 
 
-def evaluate_imgs(config: dict, input_channels: list):
+def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int):
     show_now = config['eval_imshow']
     num_classes = config['num_classes']
     _, _, test_loader = load_data(config, input_channels)
     channels_str = '_'.join([str(ch) for ch in input_channels])
-    out_dir = Path(config['root_dir']) / 'outputs' / f'eval_{channels_str}'
+    eval_out_root_dir = Path(config['root_dir']) / f"run_subset_{train_subset_cnt:02d}"
+    out_dir = eval_out_root_dir / 'outputs' / f'eval_{channels_str}'
     out_dir.mkdir(parents=True, exist_ok=True)
     test_img_idx_ls = config['test_img_idx_ls'] 
     eval_gt_available_ls = config['eval_gt_available_ls']
@@ -232,7 +234,7 @@ def evaluate_imgs(config: dict, input_channels: list):
 
     true_mask_ls = []
     pred_mask_ls = []
-    ensamble_models = load_ensamble_models(config, input_channels)
+    ensemble_models = load_ensemble_models(config, input_channels, eval_out_root_dir)
     for test_img_idx, eval_gt_available in zip(test_img_idx_ls, eval_gt_available_ls):
         log.info(f"🔍Evaluating image {test_img_idx}...")
         imgs, true_masks, buf_masks = list(test_loader)[test_img_idx]
@@ -242,7 +244,7 @@ def evaluate_imgs(config: dict, input_channels: list):
         eval_results = evaluate_single_img(imgs, 
                                              true_masks, 
                                              buf_masks,
-                                             ensamble_models,
+                                             ensemble_models,
                                              config, 
                                              input_channels,
                                             eval_gt_available, 
@@ -262,11 +264,11 @@ def evaluate_imgs(config: dict, input_channels: list):
 
 def main():
     input_channels_ls = CONFIG['input_channels_ls']
-    for input_channels in input_channels_ls:
-        assert input_channels in CONFIG['input_channels_ls'], \
-            f"Input channel {input_channels} not found in the list of input channels."
-        log.info(f"Input channels: {input_channels}")
-        evaluate_imgs(CONFIG, input_channels)
+    train_subset_cnts = CONFIG['train_subset_cnts']
+    for train_subset_cnt in train_subset_cnts:
+        for input_channels in input_channels_ls:
+            log.info(f"Input channels: {input_channels}")
+            evaluate_imgs(CONFIG, input_channels, train_subset_cnt)
 
 
 if __name__ == '__main__':

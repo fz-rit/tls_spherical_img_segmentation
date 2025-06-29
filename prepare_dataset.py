@@ -15,7 +15,11 @@ from tools.get_mean_std import normalize_img_per_channel
 
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
+import json
 
+config_file = 'params/paths_zmachine_mangrove3d_multichannel.json'
+with open(config_file, 'r') as f:
+    CONFIG = json.load(f)
 
 def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
     assert count <= len(img_paths), f"Requested {count} samples, but only {len(img_paths)} available"
@@ -226,7 +230,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     patches_per_image = config['patches_per_image']
     batch_size = config['train_batch_size']
     input_size = config['input_size']
-
+    val_ratio = config['val_ratio']
     train_transform = trasform_by_channls(input_channels=input_channels)
     val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
 
@@ -243,7 +247,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = train_test_split(
         trainval_img_paths,
         trainval_mask_paths,
-        test_size=config.get("val_ratio", 0.1),
+        test_size=val_ratio,
         shuffle=True,
         random_state=42
     )
@@ -277,7 +281,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     from tools.load_tools import CONFIG
     input_channels = CONFIG['input_channels_ls'][0]
-    train_subset_cnt = CONFIG.get('train_subset_cnt', 30)
+    train_subset_cnt = 10
     train_loader, val_loader, test_loader = load_data(CONFIG, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
     print(f"Train samples: {len(train_loader.dataset)}")
     print(f"Val samples: {len(val_loader.dataset)}")

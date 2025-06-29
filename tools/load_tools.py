@@ -6,10 +6,10 @@ import torch
 import yaml
 from pathlib import Path
 import numpy as np
-
-config_file = 'params/paths_rc_mangrove3d.json'
-with open(config_file, 'r') as f:
-    CONFIG = json.load(f)
+from prepare_dataset import CONFIG
+# config_file = 'params/paths_zmachine_mangrove3d_multichannel.json'
+# with open(config_file, 'r') as f:
+#     CONFIG = json.load(f)
 
 
 # def checkout_class_freq(config, num_classes = 5):

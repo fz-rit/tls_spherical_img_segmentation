@@ -18,11 +18,16 @@ log = Logger()
 IGNORE_VAL = 255
 
 
-def train_model(config, input_channels, model_setup_dict, load_pretrain=False, save_model=False, save_onnx=False):
-    train_loader, val_loader, _ = load_data(config, input_channels=input_channels)
+def train_model(config, train_subset_cnt, input_channels, model_setup_dict, 
+                load_pretrain=False, save_model=False, save_onnx=False):
+    train_loader, val_loader, _ = load_data(config, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
+    train_out_root_dir = Path(config['root_dir']) / f"run_subset_{train_subset_cnt:02d}"
+
     model_name = model_setup_dict['arch']
     encoder = model_setup_dict['encoder']
     out_file_str = model_setup_dict['name']
+    model_dir = train_out_root_dir / config['model_dir'] / out_file_str
+    model_dir.mkdir(parents=True, exist_ok=True)
     model = build_model_for_multi_channels(
         model_name=model_name,
         encoder_name=encoder,
@@ -36,7 +41,6 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
     channel_info_str = '_'.join([str(ch) for ch in input_channels])
     num_classes = config['num_classes']
     if load_pretrain:
-        model_dir = Path(config['root_dir']) / config['model_dir'] / out_file_str
         model_file = model_dir / config['pretrained_model_file']
         pretrained_epoch = int(model_file.stem.split('_')[-1])
         if model_file.exists():
@@ -155,8 +159,6 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
         save_due_to_early_stop = early_stopper.early_stop and stop_early
 
         if save_model and (save_by_interval or save_due_to_early_stop):
-            model_dir = Path(config['root_dir']) / config['model_dir'] / out_file_str
-            model_dir.mkdir(parents=True, exist_ok=True)
             model_name_prefix = f"{out_file_str}_epoch_{epoch+1:03d}_{channel_info_str}"
             save_model_locally(
                 model=model,
@@ -174,9 +176,6 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
     # -------------------------------------------------------------------------
     if save_model and best_model_state is not None:
         model.load_state_dict(best_model_state)
-
-        model_dir = Path(config['root_dir']) / config['model_dir'] / out_file_str
-        model_dir.mkdir(parents=True, exist_ok=True)
         timestr = time.strftime("%Y%m%d_%H%M%S")
         model_name_prefix = f"{out_file_str}_best_{channel_info_str}_{timestr}"
         save_model_locally(
@@ -192,10 +191,12 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
     # 5. Save plots and return
     # -------------------------------------------------------------------------
     timestr = time.strftime("%Y%m%d_%H%M%S")
-    plt_save_path = Path(config['root_dir']) / 'outputs' / out_file_str / f'losses_{channel_info_str}_{timestr}.png'
+    train_loss_save_dir = train_out_root_dir / 'outputs' / out_file_str
+    train_loss_save_dir.mkdir(parents=True, exist_ok=True)
+    plt_save_path = train_loss_save_dir / f'losses_{channel_info_str}_{timestr}.png'
     plot_training_validation_losses(train_losses, val_losses, plt_save_path)
 
-    metrics_save_path = Path(config['root_dir']) / 'outputs' / out_file_str / f'metrics_{channel_info_str}_{timestr}.png'
+    metrics_save_path = train_loss_save_dir / f'metrics_{channel_info_str}_{timestr}.png'
     plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_mIoUs, metrics_save_path)
 
     out_dict = {
@@ -206,7 +207,7 @@ def train_model(config, input_channels, model_setup_dict, load_pretrain=False, s
         'train_mIoUs': train_mIoUs,
         'val_mIoUs': val_mIoUs
     }
-    train_log_file = Path(config['root_dir']) / 'outputs' / out_file_str / f'train_log_{channel_info_str}.yaml'
+    train_log_file = train_loss_save_dir / f'train_log_{channel_info_str}.yaml'
     dump_dict_to_yaml(out_dict, train_log_file)
     return out_dict
 
@@ -217,16 +218,20 @@ if __name__ == "__main__":
     ensemble_config = CONFIG['ensemble_config']
     pretrained_model_file = CONFIG['pretrained_model_file']
     save_onnx = CONFIG['save_onnx']
+    train_subset_cnts = CONFIG.get('train_subset_cnts', [30])
     load_pretrain = True if pretrained_model_file else False
-    for input_channels in input_channels_ls:
-        for model_setup_dict in ensemble_config:
-            log.info(f"Training model with input channels: {input_channels} \nand setup: {model_setup_dict}")
-            state_dict = train_model(CONFIG, 
-                                     input_channels=input_channels, 
-                                     model_setup_dict=model_setup_dict,
-                                     load_pretrain=load_pretrain,
-                                     save_model=True, 
-                                     save_onnx=save_onnx)
-            
-            torch.cuda.empty_cache()
-            gc.collect()
+    for train_subset_cnt in train_subset_cnts:
+        log.info(f"Training with train_subset_cnt: {train_subset_cnt}")
+        for input_channels in input_channels_ls:
+            for model_setup_dict in ensemble_config:
+                log.info(f"Training model with input channels: {input_channels} \nand setup: {model_setup_dict}")
+                state_dict = train_model(CONFIG, 
+                                         train_subset_cnt=train_subset_cnt,
+                                        input_channels=input_channels, 
+                                        model_setup_dict=model_setup_dict,
+                                        load_pretrain=load_pretrain,
+                                        save_model=True, 
+                                        save_onnx=save_onnx)
+                
+                torch.cuda.empty_cache()
+                gc.collect()
