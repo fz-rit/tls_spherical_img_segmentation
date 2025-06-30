@@ -31,6 +31,7 @@
     "test_img_idx_ls": [0, 1, 2, 3, 4, 5, 6, 7, 8],
     "eval_gt_available_ls": [true, true, true, true, true, true, true, true, true],
     "eval_imshow": false,
+    "save_uncertainty_figs": true,
     "save_onnx": false,
     "pretrained_model_file": ""
 }

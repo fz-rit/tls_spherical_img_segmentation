@@ -8,7 +8,7 @@ from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
 from tools.visualize_tools import visualize_eval_output, write_eval_metrics_to_file, compare_uncertainty_with_error_map
-from tools.metrics_tools import calculate_segmentation_statistics
+from tools.metrics_tools import calc_segmentation_statistics, average_uncertainty_metrics_across_images
 import time
 import numpy as np
 # from tools.load_tools import CONFIG
@@ -161,6 +161,7 @@ def evaluate_single_img(img_tiles,
                         input_channels: list,
                         gt_available: bool,
                         out_dir: Path,
+                        save_uncertainty_figs=True,
                         show_now=False):
     """
     Evaluate the model on the test set.
@@ -204,6 +205,10 @@ def evaluate_single_img(img_tiles,
         "var_based_epistemic": stitched_var_based_epistemic,
         "mutual_info": stitched_mutual_info
     }
+    _, uncertainty_dict = compare_uncertainty_with_error_map(eval_results, 
+                                                                 output_dir=out_dir, 
+                                                                 savefigs=save_uncertainty_figs)
+    eval_results["uncertainty_dict"] = uncertainty_dict
     visualize_eval_output(stitched_img,
                           eval_results,
                           num_classes = num_classes,
@@ -218,7 +223,7 @@ def evaluate_single_img(img_tiles,
     
 
 
-def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int):
+def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int, save_uncertainty_figs: bool):
     show_now = config['eval_imshow']
     num_classes = config['num_classes']
     _, _, test_loader = load_data(config, input_channels)
@@ -235,6 +240,7 @@ def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int):
     true_mask_ls = []
     pred_mask_ls = []
     ensemble_models = load_ensemble_models(config, input_channels, eval_out_root_dir)
+    uncertainty_ls = []
     for test_img_idx, eval_gt_available in zip(test_img_idx_ls, eval_gt_available_ls):
         log.info(f"🔍Evaluating image {test_img_idx}...")
         imgs, true_masks, buf_masks = list(test_loader)[test_img_idx]
@@ -249,15 +255,20 @@ def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int):
                                              input_channels,
                                             eval_gt_available, 
                                             img_eval_out_dir, 
+                                            save_uncertainty_figs=save_uncertainty_figs,
                                             show_now=show_now)
-        compare_uncertainty_with_error_map(eval_results, output_dir=img_eval_out_dir, save_maps=True)
+        # _, uncertainty_dict = compare_uncertainty_with_error_map(eval_results, 
+        #                                                          output_dir=img_eval_out_dir, 
+        #                                                          savefigs=save_uncertainty_figs)
         true_mask_ls.append(eval_results['true_mask'].flatten())
         pred_mask_ls.append(eval_results['pred_mask'].flatten())
+        uncertainty_ls.append(eval_results['uncertainty_dict'])
 
     true_mask = np.concatenate(true_mask_ls) 
     pred_mask = np.concatenate(pred_mask_ls)
-    eval_metrics_dict = calculate_segmentation_statistics(true_mask, pred_mask, num_classes)
-    
+    eval_metrics_dict = calc_segmentation_statistics(true_mask, pred_mask, num_classes)
+    avg_uncertainty_dict = average_uncertainty_metrics_across_images(uncertainty_ls)
+    eval_metrics_dict.update(avg_uncertainty_dict)
     write_eval_metrics_to_file(eval_metrics_dict, out_dir, key_str=channels_str)
 
 
@@ -265,10 +276,11 @@ def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int):
 def main():
     input_channels_ls = CONFIG['input_channels_ls']
     train_subset_cnts = CONFIG['train_subset_cnts']
+    save_uncertainty_figs = CONFIG['save_uncertainty_figs']
     for train_subset_cnt in train_subset_cnts:
         for input_channels in input_channels_ls:
             log.info(f"Input channels: {input_channels}")
-            evaluate_imgs(CONFIG, input_channels, train_subset_cnt)
+            evaluate_imgs(CONFIG, input_channels, train_subset_cnt, save_uncertainty_figs=save_uncertainty_figs)
 
 
 if __name__ == '__main__':

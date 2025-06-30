@@ -281,7 +281,7 @@ if __name__ == "__main__":
     print(f"Using device: {device}")
     from tools.load_tools import CONFIG
     input_channels = CONFIG['input_channels_ls'][0]
-    train_subset_cnt = 10
+    train_subset_cnt = CONFIG['train_subset_cnts'][0]
     train_loader, val_loader, test_loader = load_data(CONFIG, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
     print(f"Train samples: {len(train_loader.dataset)}")
     print(f"Val samples: {len(val_loader.dataset)}")
