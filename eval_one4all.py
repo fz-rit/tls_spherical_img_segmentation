@@ -1,7 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, depad_tensor_vertical_only
-# from training_one4all import build_model_for_multi_channels
 from tools.feature_fusion_helper import build_model_for_multi_channels
 import json
 from pathlib import Path
@@ -11,7 +10,6 @@ from tools.visualize_tools import visualize_eval_output, write_eval_metrics_to_f
 from tools.metrics_tools import calc_segmentation_statistics, average_uncertainty_metrics_across_images
 import time
 import numpy as np
-# from tools.load_tools import CONFIG
 from prepare_dataset import CONFIG
 from tools.logger_setup import Logger
 
@@ -53,51 +51,107 @@ def load_ensemble_models(config: dict, input_channels:list, eval_out_root_dir: P
     return models
 
 
-def ensemble_predict(models, imgs, buf_masks):
+# def ensemble_predict(models, imgs, buf_masks):
+#     imgs = imgs.to("cuda")
+#     buf_masks = buf_masks.to("cuda")  # [B, 1, H, W]
+#     mask = buf_masks.squeeze(1)       # [B, H, W]
+
+#     P_all = []  # [M, B, C, H, W]
+
+#     for model in models:
+#         model.eval()
+#         with torch.no_grad():
+#             logits = model(imgs)                   # [B, C, H, W]
+#             probs = torch.softmax(logits, dim=1)   # [B, C, H, W]
+#             P_all.append(probs)
+
+#     P_all_stack = torch.stack(P_all)               # [M, B, C, H, W]
+#     P_mean = P_all_stack.mean(dim=0)               # [B, C, H, W]
+#     P_var = P_all_stack.var(dim=0)                 # [B, C, H, W]
+
+#     # Uncertainty maps
+#     var_based_epistemic = P_var.sum(dim=1)         # [B, H, W]
+#     entropy = -torch.sum(P_mean * torch.log(P_mean + 1e-8), dim=1)  # [B, H, W]
+#     expected_entropy = -torch.stack([
+#         torch.sum(P_i * torch.log(P_i + 1e-8), dim=1) for P_i in P_all
+#     ]).mean(dim=0)                                 # [B, H, W]
+#     mutual_info = entropy - expected_entropy       # [B, H, W]
+
+#     # Apply buffer mask to outputs
+#     P_mean = P_mean * mask.unsqueeze(1)                 # [B, C, H, W]
+#     var_based_epistemic = var_based_epistemic * mask    # [B, H, W]
+#     entropy = entropy * mask                            # [B, H, W]
+#     mutual_info = mutual_info * mask                    # [B, H, W]
+
+#     assert (P_mean.shape[0], P_mean.shape[2], P_mean.shape[3]) == entropy.shape == \
+#         var_based_epistemic.shape == mutual_info.shape, \
+#         f"Shapes mismatch: P_mean: {P_mean.shape}, entropy: {entropy.shape}, " \
+#         f"var_based_epistemic: {var_based_epistemic.shape}, mutual_info: {mutual_info.shape}"
+
+#     pred_dict = {
+#         "pred": P_mean.argmax(dim=1),                  # [B, H, W]
+#         "total_uncertainty": entropy,                  # [B, H, W]
+#         "var_based_epistemic": var_based_epistemic,    # [B, H, W]
+#         "mutual_info": mutual_info                     # [B, H, W]
+#     }
+
+#     return pred_dict
+
+
+def ensemble_predict_with_uncertainty(models, imgs, buf_masks=None):
+    """
+    Compute ensemble prediction and uncertainty using logits averaging.
+
+    Args:
+        models (list of nn.Module): Trained models.
+        imgs (torch.Tensor): Input images [B, C, H, W].
+        buf_masks (torch.Tensor or None): binary mask from buffer zone [B, H, W].
+
+    Returns:
+        dict with:
+            - 'pred': final predicted class indices [B, H, W]
+            - 'total_uncertainty': entropy of mean prediction [B, H, W]
+            - 'mutual_info': epistemic uncertainty [B, H, W]
+            - 'var_based_epistemic': variance across softmax outputs [B, H, W]
+    """
     imgs = imgs.to("cuda")
     buf_masks = buf_masks.to("cuda")  # [B, 1, H, W]
-    mask = buf_masks.squeeze(1)       # [B, H, W]
-
-    P_all = []  # [M, B, C, H, W]
+    Z_all = []  # raw logits
 
     for model in models:
         model.eval()
         with torch.no_grad():
-            logits = model(imgs)                   # [B, C, H, W]
-            probs = torch.softmax(logits, dim=1)   # [B, C, H, W]
-            P_all.append(probs)
+            logits = model(imgs)  # [B, C, H, W]
+            Z_all.append(logits)
 
-    P_all_stack = torch.stack(P_all)               # [M, B, C, H, W]
-    P_mean = P_all_stack.mean(dim=0)               # [B, C, H, W]
-    P_var = P_all_stack.var(dim=0)                 # [B, C, H, W]
+    Z_stack = torch.stack(Z_all)                     # [M, B, C, H, W]
+    Z_mean = Z_stack.mean(dim=0)                     # [B, C, H, W]
+    P_mean = torch.softmax(Z_mean, dim=1)            # [B, C, H, W]
 
-    # Uncertainty maps
-    var_based_epistemic = P_var.sum(dim=1)         # [B, H, W]
+    # Compute softmax for each model (for uncertainty)
+    P_all = torch.softmax(Z_stack, dim=2)            # [M, B, C, H, W]
+    P_var = P_all.var(dim=0)                         # [B, C, H, W]
+
+    # --- Uncertainty Measures ---
     entropy = -torch.sum(P_mean * torch.log(P_mean + 1e-8), dim=1)  # [B, H, W]
-    expected_entropy = -torch.stack([
-        torch.sum(P_i * torch.log(P_i + 1e-8), dim=1) for P_i in P_all
-    ]).mean(dim=0)                                 # [B, H, W]
-    mutual_info = entropy - expected_entropy       # [B, H, W]
+    expected_entropy = -torch.mean(torch.sum(P_all * torch.log(P_all + 1e-8), dim=2), dim=0)  # [B, H, W]
+    mutual_info = entropy - expected_entropy                        # [B, H, W]
+    var_based_epistemic = P_var.sum(dim=1)                          # [B, H, W]
 
-    # Apply buffer mask to outputs
-    P_mean = P_mean * mask.unsqueeze(1)                 # [B, C, H, W]
-    var_based_epistemic = var_based_epistemic * mask    # [B, H, W]
-    entropy = entropy * mask                            # [B, H, W]
-    mutual_info = mutual_info * mask                    # [B, H, W]
+    # --- Apply optional mask ---
+    if buf_masks is not None:
+        buf_masks = buf_masks.to("cuda")
+        P_mean *= buf_masks.unsqueeze(1)
+        entropy *= buf_masks
+        mutual_info *= buf_masks
+        var_based_epistemic *= buf_masks
 
-    assert (P_mean.shape[0], P_mean.shape[2], P_mean.shape[3]) == entropy.shape == \
-        var_based_epistemic.shape == mutual_info.shape, \
-        f"Shapes mismatch: P_mean: {P_mean.shape}, entropy: {entropy.shape}, " \
-        f"var_based_epistemic: {var_based_epistemic.shape}, mutual_info: {mutual_info.shape}"
-
-    pred_dict = {
+    return {
         "pred": P_mean.argmax(dim=1),                  # [B, H, W]
         "total_uncertainty": entropy,                  # [B, H, W]
         "var_based_epistemic": var_based_epistemic,    # [B, H, W]
         "mutual_info": mutual_info                     # [B, H, W]
     }
-
-    return pred_dict
 
 
 def post_process_pred_batch(pred_batch: torch.Tensor, input_patch_h, buf_mask_ls) -> np.ndarray:
@@ -180,7 +234,8 @@ def evaluate_single_img(img_tiles,
     input_h = config['input_size'][0]
 
     log.info(f"🤨 Evaluating the models and saving outputs in {out_dir}")
-    pred_dict = ensemble_predict(ensamble_models, img_tiles, buf_masks)
+    # pred_dict = ensemble_predict(ensamble_models, img_tiles, buf_masks)
+    pred_dict = ensemble_predict_with_uncertainty(ensamble_models, img_tiles, buf_masks)
     img_tiles = img_tiles.cpu()
     if img_tiles.shape[1] >3:
         img_tiles = img_tiles[:, :3, :, :]
@@ -257,9 +312,7 @@ def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int, sav
                                             img_eval_out_dir, 
                                             save_uncertainty_figs=save_uncertainty_figs,
                                             show_now=show_now)
-        # _, uncertainty_dict = compare_uncertainty_with_error_map(eval_results, 
-        #                                                          output_dir=img_eval_out_dir, 
-        #                                                          savefigs=save_uncertainty_figs)
+
         true_mask_ls.append(eval_results['true_mask'].flatten())
         pred_mask_ls.append(eval_results['pred_mask'].flatten())
         uncertainty_ls.append(eval_results['uncertainty_dict'])
