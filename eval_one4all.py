@@ -1,6 +1,8 @@
 import torch
+import argparse
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, depad_tensor_vertical_only
+from tools.load_tools import load_config
 from tools.feature_fusion_helper import build_model_for_multi_channels
 import json
 from pathlib import Path
@@ -10,7 +12,6 @@ from tools.visualize_tools import visualize_eval_output, write_eval_metrics_to_f
 from tools.metrics_tools import calc_segmentation_statistics, average_uncertainty_metrics_across_images
 import time
 import numpy as np
-from prepare_dataset import CONFIG
 from tools.logger_setup import Logger
 
 log = Logger()
@@ -25,7 +26,7 @@ def load_ensemble_models(config: dict, input_channels:list, eval_out_root_dir: P
     Returns:
     model (smp.Unet): Trained model.
     """
-    ensemble_config = CONFIG['ensemble_config']
+    ensemble_config = config['ensemble_config']
     models = []
     for model_setup_dict in ensemble_config:
         model_parent_dir = model_setup_dict['name']
@@ -327,6 +328,14 @@ def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int, sav
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Evaluate one-for-all model')
+    parser.add_argument('--config', type=str, default='params/paths_rc_forestsemantic.json',
+                        help='Path to the configuration JSON file')
+    args = parser.parse_args()
+    
+    CONFIG = load_config(args.config)
+    print(f"Using config file: {args.config}")
+    
     input_channels_ls = CONFIG['input_channels_ls']
     train_subset_cnts = CONFIG['train_subset_cnts']
     save_uncertainty_figs = CONFIG['save_uncertainty_figs']

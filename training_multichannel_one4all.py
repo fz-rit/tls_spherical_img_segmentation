@@ -1,13 +1,15 @@
 import gc
 import copy
+import argparse
 import segmentation_models_pytorch as smp
 import torch
 from prepare_dataset import load_data
+from tools.load_tools import load_config
 from pathlib import Path
 import numpy as np
 from tools.metrics_tools import calc_oAccu_mIoU
 from tools.visualize_tools import plot_training_validation_losses, plot_training_validation_metrics
-from tools.load_tools import save_model_locally, dump_dict_to_yaml, CONFIG
+from tools.load_tools import save_model_locally, dump_dict_to_yaml
 import time
 from pprint import pformat
 from tools.earlystopping import EarlyStopping
@@ -213,6 +215,14 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Train multichannel one-for-all model')
+    parser.add_argument('--config', type=str, default='params/paths_rc_forestsemantic.json',
+                        help='Path to the configuration JSON file')
+    args = parser.parse_args()
+    
+    CONFIG = load_config(args.config)
+    print(f"Using config file: {args.config}")
+    
     log.info(pformat(CONFIG))
     input_channels_ls = CONFIG['input_channels_ls']
     ensemble_config = CONFIG['ensemble_config']

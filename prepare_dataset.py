@@ -1,25 +1,22 @@
-import torch
-from torch.utils.data import Dataset
-from PIL import Image
-import numpy as np
-from torch.utils.data import DataLoader
-from pathlib import Path
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-from torch.utils.data import DataLoader
-from typing import Tuple, Dict, List
+import argparse
 import json
+import numpy as np
+import torch
 import yaml
+from pathlib import Path
+from PIL import Image
 from pprint import pprint
-from tools.get_mean_std import normalize_img_per_channel
-
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
-import json
+from torch.utils.data import Dataset, DataLoader
+from typing import Tuple, Dict, List
 
-config_file = 'params/paths_rc_forestsemantic.json'
-with open(config_file, 'r') as f:
-    CONFIG = json.load(f)
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
+from tools.get_mean_std import normalize_img_per_channel
+from tools.load_tools import load_config
+
 
 def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
     assert count <= len(img_paths), f"Requested {count} samples, but only {len(img_paths)} available"
@@ -206,10 +203,13 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
         return out
 
 
-def trasform_by_channls(input_channels:list, p=0.5):
+def transform_by_channels(input_channels: list, p=0.5):
     """
+    Create data augmentation transforms for the given input channels.
     
-    p: probability of applying the transform
+    Args:
+        input_channels (list): List of input channel indices
+        p (float): Probability of applying the transform
     """
     if len(input_channels) % 3 != 0:
         raise ValueError(f"Number of input channels must be divisible by 3, got {len(input_channels)}")
@@ -229,7 +229,7 @@ def trasform_by_channls(input_channels:list, p=0.5):
 
 
 def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoader, DataLoader, DataLoader]:
-
+    """Load and prepare data loaders for training, validation, and testing."""
     root_dir = Path(config["root_dir"])
     num_workers = config['num_workers']
     patches_per_image = config['patches_per_image']
@@ -237,7 +237,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     input_size = config['input_size']
     val_ratio = config['val_ratio']
     dataset_name = config['dataset_name']
-    train_transform = trasform_by_channls(input_channels=input_channels)
+    train_transform = transform_by_channels(input_channels=input_channels)
     val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
 
     trainval_img_paths, trainval_mask_paths = collect_image_mask_pairs(
@@ -283,6 +283,14 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description='Prepare dataset for segmentation')
+    parser.add_argument('--config', type=str, default='params/paths_rc_forestsemantic.json',
+                        help='Path to the configuration JSON file')
+    args = parser.parse_args()
+    
+    CONFIG = load_config(args.config)
+    print(f"Using config file: {args.config}")
+    
     input_channels = CONFIG['input_channels_ls'][0]
     train_subset_cnt = CONFIG['train_subset_cnts'][0]
     train_loader, val_loader, test_loader = load_data(CONFIG, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
@@ -299,5 +307,3 @@ if __name__ == "__main__":
 
     imgs, masks, buffer_masks = next(iter(test_loader))
     print(f"test loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
-    
-    
