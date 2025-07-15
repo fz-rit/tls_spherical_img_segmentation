@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 import json
 
-config_file = 'params/config_zmachine_forestsemantic.json'
+config_file = 'params/paths_rc_forestsemantic.json'
 with open(config_file, 'r') as f:
     CONFIG = json.load(f)
 
