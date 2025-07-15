@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
-from monte_carlo_dropout import MonteCarloDropoutUncertainty
+from backup.monte_carlo_dropout import MonteCarloDropoutUncertainty
 import numpy as np
 from tools.visualize_tools import visualize_eval_output, compare_uncertainty_with_error_map
 import time
