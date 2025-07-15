@@ -17,7 +17,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
 import json
 
-config_file = 'params/paths_zmachine_mangrove3d_multichannel.json'
+config_file = 'params/paths_rc_forestsemantic.json'
 with open(config_file, 'r') as f:
     CONFIG = json.load(f)
 
@@ -277,9 +277,6 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
 
 
 if __name__ == "__main__":
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-    from tools.load_tools import CONFIG
     input_channels = CONFIG['input_channels_ls'][0]
     train_subset_cnt = CONFIG['train_subset_cnts'][0]
     train_loader, val_loader, test_loader = load_data(CONFIG, input_channels=input_channels, train_subset_cnt=train_subset_cnt)

@@ -1,11 +1,9 @@
 {
     "dataset_name": "mangrove3d",
-    "root_dir": "/home/fzhcis/data/forest_semantic_preprocessed/output/",
+    "root_dir": "/home/fzhcis/data/forest_semantic_preprocessed/seg2d/",
     "label_file": "labels.json",
     "input_channels_ls": [
-        [0, 0, 0],
-        [0, 1, 2],
-        [3, 4, 5]
+        [0, 1, 2]
     ],
     "model_dir": "models",
     "ensemble_config": [
@@ -13,14 +11,14 @@
     {"arch": "DeepLabV3Plus", "encoder": "efficientnet-b3", "name": "dlabv3p_effiB3"},
     {"arch": "Segformer",     "encoder": "mit_b1",       "name": "segformer_b1"}
 ],
-    "num_workers": 10,
-    "input_size": [540, 1440],
+    "num_workers": 4,
+    "input_size": [600, 1200],
     "num_classes": 7,
-    "patches_per_image": 5,
+    "patches_per_image": 6,
     "train_batch_size": 10,
     "max_epoch_num": 100,
     "train_subset_cnts": [10],
-    "val_ratio": 0.25,
+    "val_ratio": 0.2,
     "model_save_interval": 80,
     "stop_early": true,
     "early_stop_patience": 5,
