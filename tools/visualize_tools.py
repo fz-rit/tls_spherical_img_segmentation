@@ -23,7 +23,7 @@ plt.rcParams.update({
     'figure.titlesize': 12
 })
 
-def save_mask_as_image(mask: np.ndarray, mono_path: Path=None, color_path: Path=None):
+def save_mask_as_image(mask: np.ndarray, config: dict, mono_path: Path=None, color_path: Path=None):
     """
     Save the mask as a monochrome and color image.
 
@@ -39,7 +39,7 @@ def save_mask_as_image(mask: np.ndarray, mono_path: Path=None, color_path: Path=
         log.info(f"☯️ Monochrome mask saved to {mono_path.name}")
 
     if color_path:
-        mask.putpalette(get_pil_palette())
+        mask.putpalette(get_pil_palette(config))
         mask.save(color_path)
         log.info(f"🌈 Color mask saved to {color_path.name}")
 
@@ -64,6 +64,7 @@ def visualize_eval_output(img,
                           eval_results: dict, 
                           input_channels, 
                           num_classes,
+                          config: dict,
                           gt_available=True, 
                           out_dir: Path = None):
     """"
@@ -72,7 +73,7 @@ def visualize_eval_output(img,
     input_channels_str = '_'.join([str(ch) for ch in input_channels])
     num_subplots = len(eval_results) + 1
     fig, axs = plt.subplots(num_subplots, 1, figsize=(8, 4* num_subplots))
-    color_map, _ = get_color_map()
+    color_map, _ = get_color_map(config)
     subplot_titles = ['Input Image']  # Title for the input image subplot
     subplot_titles += [key for key in eval_results.keys() if 'dict' not in key]  # Titles for predicted masks
     for i in range(len(subplot_titles)):
@@ -92,7 +93,7 @@ def visualize_eval_output(img,
     log.info(f"😌 Evaluation maps saved to {output_path.name}")
 
     pred_mask_color_path = out_dir / f"pred_mask_color.png"
-    save_mask_as_image(eval_results['pred_mask'], color_path = pred_mask_color_path)
+    save_mask_as_image(eval_results['pred_mask'], config, color_path = pred_mask_color_path)
 
     if gt_available:
         eval_metrics_dict = calc_segmentation_statistics(true_flat =  eval_results['true_mask'].flatten(),

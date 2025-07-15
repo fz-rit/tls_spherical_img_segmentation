@@ -141,11 +141,21 @@ def ensemble_predict_with_uncertainty(models, imgs, buf_masks=None):
 
     # --- Apply optional mask ---
     if buf_masks is not None:
-        buf_masks = buf_masks.to("cuda")
-        P_mean *= buf_masks.unsqueeze(1)
-        entropy *= buf_masks
-        mutual_info *= buf_masks
-        var_based_epistemic *= buf_masks
+        # buf_masks is already on CUDA from line 119
+        # Check if buf_masks needs dimension adjustment
+        if buf_masks.dim() == 3:  # [B, H, W]
+            buf_mask_for_pmean = buf_masks.unsqueeze(1)  # [B, 1, H, W]
+            buf_mask_for_uncertainty = buf_masks  # [B, H, W]
+        elif buf_masks.dim() == 4:  # [B, 1, H, W]
+            buf_mask_for_pmean = buf_masks  # [B, 1, H, W]
+            buf_mask_for_uncertainty = buf_masks.squeeze(1)  # [B, H, W]
+        else:
+            raise ValueError(f"Unexpected buf_masks shape: {buf_masks.shape}")
+            
+        P_mean *= buf_mask_for_pmean
+        entropy *= buf_mask_for_uncertainty
+        mutual_info *= buf_mask_for_uncertainty
+        var_based_epistemic *= buf_mask_for_uncertainty
 
     return {
         "pred": P_mean.argmax(dim=1),                  # [B, H, W]
@@ -269,6 +279,7 @@ def evaluate_single_img(img_tiles,
                           eval_results,
                           num_classes = num_classes,
                           input_channels = input_channels,
+                          config = config,
                           out_dir = out_dir,
                           gt_available = gt_available) 
     
