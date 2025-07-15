@@ -1,5 +1,5 @@
 {
-    "dataset_name": "mangrove3d",
+    "dataset_name": "forestsemantic",
     "root_dir": "/home/fzhcis/data/forest_semantic_preprocessed/seg2d/",
     "label_file": "labels.json",
     "input_channels_ls": [

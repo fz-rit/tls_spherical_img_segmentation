@@ -27,14 +27,19 @@ def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
     return img_sub, mask_sub
 
 
-def collect_image_mask_pairs(img_dir: Path, mask_dir: Path) -> Tuple[List[Path], List[Path]]:
+def collect_image_mask_pairs(img_dir: Path, mask_dir: Path, dataset_name: str) -> Tuple[List[Path], List[Path]]:
     img_paths = sorted(img_dir.glob("*.npy"))
     mask_paths = sorted(mask_dir.glob("*.png"))
     assert len(img_paths) == len(mask_paths), "Mismatch between images and masks"
     assert len(img_paths) > 0, f"No images found in {img_dir}"
     assert len(mask_paths) > 0, f"No masks found in {mask_dir}"
     for img_path, mask_path in zip(img_paths, mask_paths):
-        match = img_path.stem.split("_image_cube")[0][-4:] == mask_path.stem.split("_segmk")[0][-4:]
+        if 'mangrove' in dataset_name:
+            match = img_path.stem.split("_image_cube")[0][-4:] == mask_path.stem.split("_segmk")[0][-4:]
+        elif 'forestsemantic' in dataset_name:
+            match = img_path.stem[:8] == mask_path.stem[:8]
+        else:
+            raise ValueError(f"Unknown / New dataset name: {dataset_name}. Set up the matching logic accordingly.")
         assert match, f"Image {img_path.name} does not match mask {mask_path.name}"
     return img_paths, mask_paths
 
@@ -231,11 +236,12 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     batch_size = config['train_batch_size']
     input_size = config['input_size']
     val_ratio = config['val_ratio']
+    dataset_name = config['dataset_name']
     train_transform = trasform_by_channls(input_channels=input_channels)
     val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
 
     trainval_img_paths, trainval_mask_paths = collect_image_mask_pairs(
-        root_dir / "train_val/img_cube", root_dir / "train_val/mask"
+        root_dir / "train_val/img_cube", root_dir / "train_val/mask", dataset_name
     )
 
     if train_subset_cnt < len(trainval_img_paths):
