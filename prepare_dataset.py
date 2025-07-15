@@ -271,7 +271,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     test_img_paths, test_mask_paths = collect_image_mask_pairs(
-        root_dir / "test/img_cube", root_dir / "test/mask"
+        root_dir / "test/img_cube", root_dir / "test/mask", dataset_name
     )
     test_dataset = SegmentationPatchDataset(
         test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
