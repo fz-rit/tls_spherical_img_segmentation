@@ -55,14 +55,14 @@ for i in range(15):
     image_cube_dest_dir.mkdir(parents=True, exist_ok=True)
     yaml_dest_dir.mkdir(parents=True, exist_ok=True)
     mask_dest_dir.mkdir(parents=True, exist_ok=True)
-    image_cube_dest = image_cube_dest_dir / f"proj{i:02d}_{image_cube_file.name}"
-    yaml_dest = yaml_dest_dir / f"proj{i:02d}_{yaml_file.name}"
-    mask_dest = mask_dest_dir / f"proj{i:02d}_{mask_file.name}"
+    image_cube_dest = image_cube_dest_dir / f"proj{i:03d}_{image_cube_file.name}"
+    yaml_dest = yaml_dest_dir / f"proj{i:03d}_{yaml_file.name}"
+    mask_dest = mask_dest_dir / f"proj{i:03d}_{mask_file.name}"
 
 
-    # shutil.copy2(image_cube_file, image_cube_dest)
-    # shutil.copy2(yaml_file, yaml_dest)
-    # shutil.copy2(mask_file, mask_dest)
+    shutil.copy2(image_cube_file, image_cube_dest)
+    shutil.copy2(yaml_file, yaml_dest)
+    shutil.copy2(mask_file, mask_dest)
 
     print(f'Copied {image_cube_file.name} to {image_cube_dest}')
     print(f'Copied {yaml_file.name} to {yaml_dest}')
