@@ -22,23 +22,23 @@ copy_train_val_dir = copy_root_dir / 'train_val'
 
 image_cube_files = list(root_dir.glob('**/img/*_image_cube.npy'))
 yaml_files = list(root_dir.glob('**/img/*_image_cube_meta.yaml'))
-mask_files = list(root_dir.glob('**/img/*_segmk_refined.png'))
+mask_files = list(root_dir.glob('**/img/seg_map_*_mask.png'))
 
-image_cube_files.sort()
-yaml_files.sort()
-mask_files.sort()
+image_cube_files.sort(key=lambda x: x.parent.parent.name)
+yaml_files.sort(key=lambda x: x.parent.parent.name)
+mask_files.sort(key=lambda x: x.parent.parent.name)
 
 print(f'Found {len(image_cube_files)} image cube files, {len(yaml_files)} yaml files, and {len(mask_files)} mask files.')
 
-for i in range(39):
+for i in range(15):
     image_cube_file = image_cube_files[i]
     yaml_file = yaml_files[i]
     mask_file = mask_files[i]
 
-    parent_dir = image_cube_file.parent.parent.parent.parent
-    assert yaml_file.parent.parent.parent.parent == parent_dir, \
+    parent_dir = image_cube_file.parent.parent
+    assert yaml_file.parent.parent == parent_dir, \
         f'Yaml file {yaml_file.name} does not match image cube parent directory {parent_dir}'
-    assert mask_file.parent.parent.parent.parent == parent_dir, \
+    assert mask_file.parent.parent == parent_dir, \
         f'Mask file {mask_file.name} does not match image cube parent directory {parent_dir}'
 
     if any(x in str(parent_dir) for x in test_dirs):
@@ -60,9 +60,9 @@ for i in range(39):
     mask_dest = mask_dest_dir / f"proj{i:03d}_{mask_file.name}"
 
 
-    shutil.copy2(image_cube_file, image_cube_dest)
-    shutil.copy2(yaml_file, yaml_dest)
-    shutil.copy2(mask_file, mask_dest)
+    # shutil.copy2(image_cube_file, image_cube_dest)
+    # shutil.copy2(yaml_file, yaml_dest)
+    # shutil.copy2(mask_file, mask_dest)
 
     print(f'Copied {image_cube_file.name} to {image_cube_dest}')
     print(f'Copied {yaml_file.name} to {yaml_dest}')
