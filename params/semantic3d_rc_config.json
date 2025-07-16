@@ -4,7 +4,9 @@
     "label_file": "labels.json",
     "input_channels_ls": [
         [0, 1, 2],
-        [3, 4, 5]
+        [3, 4, 5],
+        [6, 7, 8],
+        [9, 10, 11]
     ],
     "model_dir": "models",
     "ensemble_config": [
@@ -18,13 +20,13 @@
     "patches_per_image": 10,
     "train_batch_size": 10,
     "max_epoch_num": 150,
-    "train_subset_cnts": [10],
-    "val_ratio": 0.2,
+    "train_subset_cnts": [12],
+    "val_ratio": 0.1,
     "model_save_interval": 80,
     "stop_early": true,
-    "early_stop_patience": 5,
-    "test_img_idx_ls": [0, 1, 2, 3, 4],
-    "eval_gt_available_ls": [true, true, true, true, true],
+    "early_stop_patience": 3,
+    "test_img_idx_ls": [0, 1, 2],
+    "eval_gt_available_ls": [true, true, true],
     "eval_imshow": false,
     "save_uncertainty_figs": true,
     "save_onnx": false,
