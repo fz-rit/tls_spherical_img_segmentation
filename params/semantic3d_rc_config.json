@@ -13,7 +13,7 @@
     {"arch": "Segformer",     "encoder": "mit_b1",       "name": "segformer_b1"}
 ],
     "num_workers": 4,
-    "input_size": [840, 3600],
+    "input_size": [455, 1800],
     "num_classes": 8,
     "patches_per_image": 10,
     "train_batch_size": 10,

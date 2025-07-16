@@ -10,9 +10,19 @@ Date: 2025-06-23
 import shutil
 from pathlib import Path
 
-
-train_val_dirs = ['plot1', 'plot3']
-test_dirs = ['plot5']
+train_val_dirs = ['bildstein_station1', 
+                  'bildstein_station3',
+                  'bildstein_station5',
+                  'domfountain_station1', 
+                  'domfountain_station2',
+                  'domfountain_station3',
+                  'untermaederbrunnen_station1', 
+                  'untermaederbrunnen_station3',
+                  'neugasse_station1', 
+                  'sg27_station4', 
+                  'sg27_station5', 
+                  'sg28_station4']
+test_dirs = ['sg27_station1', 'sg27_station2', 'sg27_station9']
 root_dir = Path('/home/fzhcis/data/semantic3d_reduced8/TLS_sphere_output/')
 copy_root_dir = Path('/home/fzhcis/data/semantic3d_reduced8/seg2d/')
 
