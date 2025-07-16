@@ -41,7 +41,7 @@ def save_merged_mask(merged_map: np.ndarray, out_file: Path):
 
 
 parser = argparse.ArgumentParser(description='Prepare dataset for segmentation')
-parser.add_argument('--mask_dir', type=str, 
+parser.add_argument('--mask_dir', type=str, required=True,
                     help='Path to the directory containing mask images')
 args = parser.parse_args()
 
@@ -53,12 +53,13 @@ merged_mask_dir = mask_dir.parent / "merged_mask"
 merged_mask_dir.mkdir(exist_ok=True)
 
 for mask_file in mask_files:
-    print(f"Processing {mask_file.name} with shape {mask_file.stat().st_size} bytes")
+    print(f"Processing {mask_file.name} ")
     mask = read_mask(mask_file)
     histogram = get_histogram(mask)
     print(f"Histogram before merge: {histogram}")
+    print(f"Class 7 pixels: {np.sum(mask == 7)}")
     mask = mergeclass(mask, 7, 0)
     histogram = get_histogram(mask)
     print(f"Histogram after merge: {histogram}")
 
-    # save_merged_mask(mask, merged_mask_dir / f"{mask_file.stem}_merged.png")
+    save_merged_mask(mask, merged_mask_dir / f"{mask_file.stem}_merged.png")
