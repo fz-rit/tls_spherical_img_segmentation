@@ -82,11 +82,14 @@ def compare_binary_maps(uncertainty_map: np.ndarray, error_map: np.ndarray) -> d
 
 def calc_segmentation_statistics(true_flat: np.ndarray, 
                  pred_flat: np.ndarray, 
-                 num_classes: int) -> dict:
+                 num_classes: int
+                 ) -> dict:
     """
     Calculate evaluation metrics for semantic segmentation.
     """
-    original_conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+    original_conf_mtx = confusion_matrix(true_flat, pred_flat, 
+                                        #  labels=np.arange(num_classes)
+                                         )
 
     conf_mtx = original_conf_mtx.copy()
     # Keep only the classes that appear in either true or pred

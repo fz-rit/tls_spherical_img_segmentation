@@ -102,6 +102,7 @@ def depad_tensor_vertical_only(tensor: torch.Tensor, original_height: int) -> to
 
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
+                 dataset_name: str,
                  image_file_paths, 
                  mask_paths=None,
                  input_channels=None,
@@ -115,6 +116,7 @@ class SegmentationPatchDataset(Dataset):
         self.patch_splits = patch_splits
         self.transform = transform
         self.buffer_size = buffer_size
+        self.dataset_name = dataset_name
         self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
     def __len__(self):
@@ -128,6 +130,9 @@ class SegmentationPatchDataset(Dataset):
         image_cube = image_cube[:, :, self.input_channels]
         image_cube = normalize_img_per_channel(image_cube)
         mask = np.array(Image.open(self.mask_paths[i]))
+
+        if 'SEMANTIC3D' in self.dataset_name.upper():
+            mask[mask == 9] = 0  # Set 'Void' to 0
 
         full_h, full_w = image_cube.shape[:2]
         tile_w = full_w // self.patch_splits
@@ -261,10 +266,10 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     buffer_size = choose_buffer_size(tile_w, multiple_of=32)
     print(f"Using adaptive buffer size horizontally: {buffer_size}")
     train_dataset = SegmentationPatchDataset(
-        train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform, buffer_size=buffer_size
+        dataset_name, train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform, buffer_size=buffer_size
     )
     val_dataset = SegmentationPatchDataset(
-        val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
+        dataset_name, val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
     )
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
@@ -274,7 +279,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
         root_dir / "test/img_cube", root_dir / "test/mask", dataset_name
     )
     test_dataset = SegmentationPatchDataset(
-        test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
+        dataset_name, test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
     )
     test_loader = DataLoader(test_dataset, batch_size=patches_per_image, shuffle=False, num_workers=num_workers)
 

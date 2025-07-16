@@ -28,20 +28,21 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
     model_name = model_setup_dict['arch']
     encoder = model_setup_dict['encoder']
     out_file_str = model_setup_dict['name']
+    num_classes = config['num_classes']
     model_dir = train_out_root_dir / config['model_dir'] / out_file_str
     model_dir.mkdir(parents=True, exist_ok=True)
     model = build_model_for_multi_channels(
         model_name=model_name,
         encoder_name=encoder,
         in_channels=len(input_channels),
-        num_classes=config['num_classes']
+        num_classes=num_classes
     )
     pretrained_epoch = 0
     stop_early = config['stop_early']
     dummy_shape = list(next(iter(train_loader))[0].shape)
     epoch_num = config['max_epoch_num']
     channel_info_str = '_'.join([str(ch) for ch in input_channels])
-    num_classes = config['num_classes']
+    
     if load_pretrain:
         model_file = model_dir / config['pretrained_model_file']
         pretrained_epoch = int(model_file.stem.split('_')[-1])
