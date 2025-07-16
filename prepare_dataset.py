@@ -33,7 +33,7 @@ def collect_image_mask_pairs(img_dir: Path, mask_dir: Path, dataset_name: str) -
     for img_path, mask_path in zip(img_paths, mask_paths):
         if 'mangrove' in dataset_name:
             match = img_path.stem.split("_image_cube")[0][-4:] == mask_path.stem.split("_segmk")[0][-4:]
-        elif 'forestsemantic' in dataset_name:
+        elif 'forestsemantic' in dataset_name or 'SEMANTIC3D' in dataset_name:
             match = img_path.stem[:8] == mask_path.stem[:8]
         else:
             raise ValueError(f"Unknown / New dataset name: {dataset_name}. Set up the matching logic accordingly.")
