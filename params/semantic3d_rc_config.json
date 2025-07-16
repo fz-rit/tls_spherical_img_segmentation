@@ -1,5 +1,5 @@
 {
-    "dataset_name": "forestsemantic",
+    "dataset_name": "SEMANTIC3D",
     "root_dir": "/home/fzhcis/data/semantic3d_reduced8/seg2d/",
     "label_file": "labels.json",
     "input_channels_ls": [
