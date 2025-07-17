@@ -292,6 +292,7 @@ def evaluate_single_img(img_tiles,
 
 def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int, save_uncertainty_figs: bool):
     show_now = config['eval_imshow']
+    dataset_name = config['dataset_name']
     num_classes = config['num_classes']
     _, _, test_loader = load_data(config, input_channels)
     channels_str = '_'.join([str(ch) for ch in input_channels])
@@ -311,7 +312,12 @@ def evaluate_imgs(config: dict, input_channels: list, train_subset_cnt: int, sav
     for test_img_idx, eval_gt_available in zip(test_img_idx_ls, eval_gt_available_ls):
         log.info(f"🔍Evaluating image {test_img_idx}...")
         imgs, true_masks, buf_masks = list(test_loader)[test_img_idx]
-        key_str = Path(test_loader.dataset.image_file_paths[test_img_idx]).stem.split('_')[-3][-4:] # the four numbers represent the test image dataset.
+        if "mangrove" in dataset_name.lower():
+            key_str = Path(test_loader.dataset.image_file_paths[test_img_idx]).stem.split('_')[-3][-4:] # the four numbers represent the test image dataset.
+        elif "semantic3d" in dataset_name.lower() or "forestsemantic" in dataset_name.lower():
+            key_str = Path(test_loader.dataset.image_file_paths[test_img_idx]).stem
+        else:
+            raise ValueError(f"Unknown dataset name: {dataset_name}; Double check the key_str extraction logic in evaluate_imgs()")
         img_eval_out_dir = out_dir / key_str
         img_eval_out_dir.mkdir(parents=False, exist_ok=True)
         eval_results = evaluate_single_img(imgs, 
