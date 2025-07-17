@@ -3,11 +3,11 @@ import pandas as pd
 import numpy as np
 from PIL import Image
 import json
-mask_dir = Path("/home/fzhcis/mylab/data/forestsemantic_seg2d/seg2d/test/mask")
+mask_dir = Path("/home/fzhcis/data/forest_semantic_preprocessed/seg2d/test/mask/")
 mask_files = list(mask_dir.glob("*mask.png"))
 mask_files.sort()
 
-label_json = Path("/home/fzhcis/Downloads/ForestSemantic/output/test/input/labels.json")
+label_json = Path("/home/fzhcis/data/forest_semantic_preprocessed/seg2d/labels.json")
 
 def get_label_map(label_file: Path) -> dict:
     """Get label map from config."""
