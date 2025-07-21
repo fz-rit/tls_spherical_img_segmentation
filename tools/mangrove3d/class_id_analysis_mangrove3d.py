@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 
 import matplotlib.pyplot as plt
+from PIL import Image
 from pathlib import Path
 plt.rcParams.update({
     'font.size': 12,         # base font size
@@ -48,8 +49,12 @@ def grab_class_id(file_paths):
             class_id_col = read_class_id_csv(file_path)
         elif file_path.suffix == '.label':
             class_id_col = np.loadtxt(file_path, dtype=int)
+        elif file_path.suffix == '.png':
+            mask = Image.open(file_path)
+            class_id_col = np.array(mask).flatten()
+            class_id_col = class_id_col.reshape(-1, 1)
         else:
-            raise ValueError(f"Unsupported file type: {file_path.suffix}. Only .csv and .label files are supported.")
+            raise ValueError(f"Unsupported file type: {file_path.suffix}. Only .csv, .label and .png files are supported.")
         class_0_num = (class_id_col == 0).sum()
         class_0_ratio = class_0_num / len(class_id_col) * 100
         if class_0_num > 10:
@@ -114,8 +119,15 @@ def plot_class_id_hist(class_id_vec, class_map, save_path):
     plt.savefig(save_path, dpi=300)
     plt.show()
 
-root_dir = Path("/home/fzhcis/data/mangrove3d_pcd/test/")
-label_paths = list(root_dir.glob('**/*_refined.label'))
+
+# ----- For pcd files -----
+# root_dir = Path("/home/fzhcis/data/mangrove3d_pcd/test/")
+# label_paths = list(root_dir.glob('**/*_refined.label'))
+
+
+# ----- For image mask files -----
+root_dir = Path("/home/fzhcis/data/palau_2024_for_rc/mangrove3d/train_val/")
+label_paths = list(root_dir.glob('**/*_segmk_refined.png'))
 if len(label_paths) != 9:
     raise ValueError(f"Expected 9 label files, found {len(label_paths)}. Please check the directory structure.")
 class_id_ls, class_id_all = grab_class_id(label_paths)
