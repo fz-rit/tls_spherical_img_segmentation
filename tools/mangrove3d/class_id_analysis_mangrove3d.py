@@ -114,10 +114,10 @@ def plot_class_id_hist(class_id_vec, class_map, save_path):
     plt.savefig(save_path, dpi=300)
     plt.show()
 
-root_dir = Path("/home/fzhcis/data/mangrove3d_pcd/train_val/")
+root_dir = Path("/home/fzhcis/data/mangrove3d_pcd/test/")
 label_paths = list(root_dir.glob('**/*_refined.label'))
-if len(label_paths) !=30:
-    raise ValueError(f"Expected 30 label files, found {len(label_paths)}. Please check the directory structure.")
+if len(label_paths) != 9:
+    raise ValueError(f"Expected 9 label files, found {len(label_paths)}. Please check the directory structure.")
 class_id_ls, class_id_all = grab_class_id(label_paths)
 save_path = root_dir / "class_id_histogram.png"
 plot_class_id_hist(class_id_all, CLASS_MAP, save_path=save_path)
