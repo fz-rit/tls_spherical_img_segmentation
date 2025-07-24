@@ -3,19 +3,17 @@
     "root_dir": "/home/fzhcis/data/forest_semantic_preprocessed/seg2d/",
     "label_file": "labels.json",
     "input_channels_ls": [
-        [3, 4, 5],
-        [6, 7, 8],
-        [9, 10, 11],
-        [12, 13, 14],
-        [15, 16, 17],
-        [18, 19, 20],
-        [21, 22, 23]
+        [3, 4, 5, 6, 7, 8],
+        [3, 4, 5, 9, 10, 11],
+        [6, 7, 8, 9, 10, 11],
+        [3, 4, 5, 6, 7, 8, 9, 10, 11],
+        [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
     ],
     "model_dir": "models",
     "ensemble_config": [
-    {"arch": "UnetPlusPlus", "encoder": "resnet34",      "name": "unetpp_r34"},
     {"arch": "DeepLabV3Plus", "encoder": "efficientnet-b3", "name": "dlabv3p_effiB3"},
-    {"arch": "Segformer",     "encoder": "mit_b1",       "name": "segformer_b1"}
+    {"arch": "Segformer",     "encoder": "mit_b1",       "name": "segformer_b1"},
+    {"arch": "UnetPlusPlus", "encoder": "resnet34",      "name": "unetpp_r34"}
 ],
     "num_workers": 4,
     "input_size": [840, 3600],
