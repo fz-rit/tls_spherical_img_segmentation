@@ -101,6 +101,8 @@ def visualize_eval_output(img,
                                                         num_classes = num_classes)
         eval_metrics_dict.update(eval_results['uncertainty_dict'])
         write_eval_metrics_to_file(eval_metrics_dict, out_dir, key_str=input_channels_str)
+
+    plt.close(fig)
     
 
 def plot_training_validation_losses(train_losses, val_losses, plt_save_path, clip_val_loss=True):
@@ -274,8 +276,8 @@ def compare_uncertainty_with_error_map(eval_results,
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         output_path = output_dir / f"uncertainty_error_{timestamp}.png"
         fig.savefig(output_path)
-        log.info(f"😉Uncertainty and error map saved to {output_path}")
-    # plt.show()
+        log.info(f"🎆 Uncertainty and error map saved to {output_path}")
+        plt.close(fig)
 
     return metrics_by_threshold, uncertainty_dict
 
@@ -353,7 +355,8 @@ def plot_correlation_matrix(corr_matrix,
 
     output_path = Path(f"outputs/correlation_matrix_{output_stem}.png")
     corr_fig.savefig(output_path)
-    log.info(f"1️Correlation matrix saved to {output_path}")
+    log.info(f"Correlation matrix saved to {output_path}")
+    plt.close(corr_fig)
 
 
 def plot_pca_components(pcs, output_stem = None):
@@ -387,8 +390,8 @@ def plot_pca_components(pcs, output_stem = None):
 
     output_path = Path(f"outputs/pca_components_{output_stem}.png")
     fig.savefig(output_path)
-    log.info(f"2️PCA/MNF/ICA components saved to {output_path}")
-    
+    log.info(f"PCA/MNF/ICA components saved to {output_path}")
+    plt.close(fig)
 
 def plot_rgb_permutations(components, output_stem=None):
     """
@@ -427,7 +430,9 @@ def plot_rgb_permutations(components, output_stem=None):
     if output_stem:
         output_path = f"outputs/{output_stem}_PCs_permutations.png"
         fig.savefig(output_path)
-        log.info(f"3️Saved RGB permutations plot to {output_path}")
+        log.info(f"Saved RGB permutations plot to {output_path}")
+
+    plt.close(fig)
 
 
 def plot_channel_histograms(image_cube, channel_names=None, bins=256, colormap='tab10'):
@@ -458,3 +463,4 @@ def plot_channel_histograms(image_cube, channel_names=None, bins=256, colormap='
         ax.grid(True)
 
     plt.tight_layout()
+    plt.close(fig)
