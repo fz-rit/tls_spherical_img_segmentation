@@ -200,7 +200,7 @@ class MultiGroupSegformer(nn.Module):
         super().__init__()
 
         if total_in_channels % 3 != 0 or total_in_channels < 3:
-            raise ValueError("total_in_channels must be 3 × N (N ≥ 1).")
+            raise ValueError("total_in_channels must be 3 x N (N ≥ 1).")
         self.num_groups = total_in_channels // 3
 
         # ========== encoders (one per 3-channel group) ==========
