@@ -1,12 +1,12 @@
 import torch
 import matplotlib.pyplot as plt
 from prepare_dataset import load_data, resize_image_or_mask, NUM_CLASSES
-from training_one4all import train_model, build_model_for_multi_channels
+from backup.training_one4all import train_model, build_model_for_multi_channels
 import json
 from pathlib import Path
 import segmentation_models_pytorch as smp
 import datetime
-from monte_carlo_dropout import MonteCarloDropoutUncertainty
+from backup.monte_carlo_dropout import MonteCarloDropoutUncertainty
 import numpy as np
 from tools.visualize_tools import visualize_eval_output, compare_uncertainty_with_error_map
 import time
@@ -106,7 +106,7 @@ def evaluate(imgs, true_masks, config, gt_available,
         print("🔍Comparing uncertainty map with error map...")
         error_map = np.zeros_like(true_mask)
         error_map[true_mask != pred_mask] = 1
-        metrics_dict = compare_uncertainty_with_error_map(uncertainty_map, error_map, output_path=output_paths[2])
+        metrics_dict = compare_uncertainty_with_error_map(uncertainty_map, error_map, output_dir=output_paths[2])
         # print(f"Metrics comparing uncertainty map with error map: {metrics_dict}")
     
     if show_now:

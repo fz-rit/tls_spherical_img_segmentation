@@ -1,6 +1,6 @@
 import matplotlib.pyplot as plt
 from tools.load_tools import get_color_map, get_pil_palette, get_label_map
-from tools.metrics_tools import calculate_segmentation_statistics, compare_binary_maps
+from tools.metrics_tools import calc_segmentation_statistics, uncertainty_vs_error, calc_precision_recall_curve, calc_image_entropy
 import datetime
 from pathlib import Path
 from PIL import Image
@@ -13,7 +13,17 @@ from tools.logger_setup import Logger
 
 log = Logger()
 
-def save_mask_as_image(mask: np.ndarray, mono_path: Path=None, color_path: Path=None):
+plt.rcParams.update({
+    'font.size': 12,         # base font size
+    'axes.titlesize': 12,    # title size
+    'axes.labelsize': 10,    # x/y label size
+    'xtick.labelsize': 9,
+    'ytick.labelsize': 9,
+    'legend.fontsize': 9,
+    'figure.titlesize': 12
+})
+
+def save_mask_as_image(mask: np.ndarray, config: dict, mono_path: Path=None, color_path: Path=None):
     """
     Save the mask as a monochrome and color image.
 
@@ -29,7 +39,7 @@ def save_mask_as_image(mask: np.ndarray, mono_path: Path=None, color_path: Path=
         log.info(f"☯️ Monochrome mask saved to {mono_path.name}")
 
     if color_path:
-        mask.putpalette(get_pil_palette())
+        mask.putpalette(get_pil_palette(config))
         mask.save(color_path)
         log.info(f"🌈 Color mask saved to {color_path.name}")
 
@@ -54,6 +64,7 @@ def visualize_eval_output(img,
                           eval_results: dict, 
                           input_channels, 
                           num_classes,
+                          config: dict,
                           gt_available=True, 
                           out_dir: Path = None):
     """"
@@ -62,9 +73,9 @@ def visualize_eval_output(img,
     input_channels_str = '_'.join([str(ch) for ch in input_channels])
     num_subplots = len(eval_results) + 1
     fig, axs = plt.subplots(num_subplots, 1, figsize=(8, 4* num_subplots))
-    color_map, _ = get_color_map()
+    color_map, _ = get_color_map(config)
     subplot_titles = ['Input Image']  # Title for the input image subplot
-    subplot_titles += [key for key in eval_results.keys()]  # Titles for predicted masks
+    subplot_titles += [key for key in eval_results.keys() if 'dict' not in key]  # Titles for predicted masks
     for i in range(len(subplot_titles)):
         if subplot_titles[i] == 'Input Image':
             axs[i].imshow(img)
@@ -72,7 +83,8 @@ def visualize_eval_output(img,
             mask = eval_results[subplot_titles[i]]
             axs[i].imshow(mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
         else:
-            axs[i].imshow(eval_results[subplot_titles[i]], cmap='plasma', interpolation='nearest')
+            axs[i].imshow(eval_results[subplot_titles[i]], cmap='hot', interpolation='nearest')
+            cbar = plt.colorbar(axs[i].images[0], ax=axs[i], orientation='horizontal', fraction=0.08, pad=0.04, aspect=20)
         axs[i].set_title(subplot_titles[i])
         axs[i].axis('off')        
     plt.tight_layout()
@@ -81,84 +93,17 @@ def visualize_eval_output(img,
     log.info(f"😌 Evaluation maps saved to {output_path.name}")
 
     pred_mask_color_path = out_dir / f"pred_mask_color.png"
-    save_mask_as_image(eval_results['pred_mask'], color_path = pred_mask_color_path)
+    save_mask_as_image(eval_results['pred_mask'], config, color_path = pred_mask_color_path)
 
     if gt_available:
-        eval_metrics_dict = calculate_segmentation_statistics(true_flat =  eval_results['true_mask'].flatten(),
+        eval_metrics_dict = calc_segmentation_statistics(true_flat =  eval_results['true_mask'].flatten(),
                                                         pred_flat = eval_results['pred_mask'].flatten(),
                                                         num_classes = num_classes)
-        # save eval_metrics_dict to a text file
-        # metrics_path = out_dir / f"eval_metrics_{timestamp}.txt"
-        # with open(metrics_path, 'w') as f:
-        #     for key, value in eval_metrics_dict.items():
-        #         f.write(f"{key}: {value}\n")
-        # log.info(f"Evaluation metrics saved to {metrics_path}")
+        eval_metrics_dict.update(eval_results['uncertainty_dict'])
         write_eval_metrics_to_file(eval_metrics_dict, out_dir, key_str=input_channels_str)
+
+    plt.close(fig)
     
-    # # Compute metrics between true_mask and pred_mask
-    # true_flat = true_mask.flatten()
-    # pred_flat = pred_mask.flatten()
-    # num_subplots = 4 if gt_available else 3
-
-    # fig, axs = plt.subplots(num_subplots, 1, figsize=(10, 6))
-    
-    
-
-    # if gt_available:
-    #     metric_dict = calculate_segmentation_statistics(true_flat, pred_flat, num_classes)
-        # oAcc, mAcc, mIoU, FWIoU, dice_coefficient = metric_dict['oAcc'], metric_dict['mAcc'], metric_dict['mIoU'], metric_dict['FWIoU'], metric_dict['dice_coefficient']
-        # confusion_matrix = metric_dict['confusion_matrix']
-        # pred_title = ' '.join(['Predicted Mask\n',
-        #             f'oAcc: {oAcc:.4f};',
-        #             f'mAcc: {mAcc:.4f};',
-        #             f'mIoU: {mIoU:.4f};',
-        #             f'FWIoU: {FWIoU:.4f};',
-        #             f'dice_coeff: {dice_coefficient:.4f}'])
-        # true_title = 'Ground Truth Mask' 
-    # else:
-    #     pred_title = 'Predicted Mask (No GT)'
-    #     true_title = 'Ground Truth Mask (Not Available)'
-
-    # axe_img.imshow(img)
-    # axe_img.set_title(f'Input Image {input_channels_str}')
-    # axe_img.axis('off')
-    
-    # # For masks, use a discrete colormap to distinguish classes
-    # axe_true_mask.imshow(true_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
-    # axe_true_mask.set_title(true_title)
-    # axe_true_mask.axis('off')
-
-    # axe_pred_mask.imshow(pred_mask, cmap=color_map, vmin=0, vmax=num_classes - 1, interpolation='nearest')
-    # axe_pred_mask.set_title(pred_title)
-    # axe_pred_mask.axis('off')
-
-    # # Plot confusion matrix in axs_confmtx
-    # if gt_available:
-    #     axs_confmtx = axs[3]
-    #     label_map = get_label_map()
-    #     sns.heatmap(confusion_matrix, 
-    #                 annot=True, 
-    #                 fmt='d', 
-    #                 cmap='rainbow', 
-    #                 ax=axs_confmtx, 
-    #                 cbar=True)
-    #     axs_confmtx.set_title('Confusion Matrix')
-    #     axs_confmtx.set_xlabel('Predicted Class')
-    #     axs_confmtx.set_ylabel('True Class')
-    #     axs_confmtx.set_xticklabels([label_map[i] for i in range(num_classes)], rotation=30, ha='right')
-    #     axs_confmtx.set_yticklabels([label_map[i] for i in range(num_classes)], rotation=0)
-
-
-    # plt.tight_layout()
-    # timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    # output_path = Path(f"outputs/output_{timestamp}.png") if output_path is None else output_path
-    # fig.savefig(output_path)
-    # log.info(f"😌Segmentation map saved to {output_path}")
-
-    # # Save the pred_mask in rbg image.
-    # pred_mask_mono_path = output_path.parent / f"pred_mask_mono_{timestamp}.png"
-    # pred_mask_color_path = output_path.parent / f"pred_mask_color_{timestamp}.png"
-    # save_mask_as_image(pred_mask, pred_mask_mono_path, pred_mask_color_path)
 
 def plot_training_validation_losses(train_losses, val_losses, plt_save_path, clip_val_loss=True):
     """
@@ -244,9 +189,9 @@ def plot_training_validation_metrics(train_oAccus, val_oAccus, train_mIoUs, val_
 
 
 
-def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray, 
-                                       error_map: np.ndarray,
-                                       output_path: Path = None):
+def compare_uncertainty_with_error_map(eval_results,
+                                       output_dir: Path = None, 
+                                       savefigs: bool = False):
     """
     Compare uncertainty map with error map and visualize metrics as scatter plots.
     
@@ -257,58 +202,125 @@ def compare_uncertainty_with_error_map(uncertainty_map: np.ndarray,
     Returns:
     None
     """
-    # Simulate or fetch the metrics_by_threshold
-    metrics_by_threshold = compare_binary_maps(uncertainty_map, error_map)
-    
-    fig = plt.figure(figsize=(16, 10))
-    outer = gridspec.GridSpec(2, 2, height_ratios=[2, 3], hspace=0.3, wspace=0.3)
+    mutual_info_uncertainty_map, error_map, metrics_by_threshold = uncertainty_vs_error(eval_results, verbose=False)
 
-    # === First row: Uncertainty & Error maps ===
-    ax1 = plt.subplot(outer[0, 0])
-    unct_map_im = ax1.imshow(uncertainty_map, cmap='hot', interpolation='nearest')
-    ax1.set_title('Uncertainty Map')
-    ax1.axis('off')
-
-    ax2 = plt.subplot(outer[0, 1])
-    ax2.imshow(error_map, cmap='gray', vmax=1, interpolation='nearest')
-    ax2.set_title('Error Map (0-miss, 1-hit)')
-    ax2.axis('off')
-
-    # === Second row: 8 sub-subplots ===
-    inner_grid = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=outer[1, :], wspace=0.4, hspace=0.4)
-
-    metric_names = ['F1', 'Precision', 'Recall', 'IoU', 'SSIM', 'Hausdorff_Distance']
-    observe_minmax = [1, 1, 1, 1, 1, 0] # 1: observe max, 0: observe min
-    thresholds = metrics_by_threshold['threshold']
-
-    for i, metric in enumerate(metric_names):
-        ax = plt.subplot(inner_grid[i])
-        values = metrics_by_threshold[metric]
-        if observe_minmax[i]:
-            obs_val = max(values)
-            obs_str = 'max'
-            th = thresholds[np.argmax(values)]
+    uncertainty_str_ls = ['total_uncertainty', 'var_based_epistemic', 'mutual_info']
+    uncertainty_dict = {}
+    uncertainty_dict["error_map_entropy"] = calc_image_entropy(error_map)
+    for title_str in uncertainty_str_ls:
+        if title_str in eval_results:
+            uncertainty_dict[title_str + "_entropy"] = calc_image_entropy(eval_results[title_str])
+            log.info(f"Plotting precision-recall curve for {title_str}")
+            pr_dict = plot_precision_recall_curve(y_true=error_map, 
+                                        y_scores=eval_results[title_str], 
+                                        output_dir=output_dir, 
+                                        title_str=title_str,
+                                        savefig=savefigs)
+            uncertainty_dict[title_str+'_auprc'] = pr_dict['auprc']
         else:
-            obs_val = min(values)
-            obs_str = 'min'
-            th = thresholds[np.argmin(values)]
-        ax.set_title(f"{metric}({obs_str}={obs_val:.3f}; th={th:.2f})", fontsize=8)
-        ax.scatter(thresholds, values, s=10)
-        ax.scatter(th, obs_val, s=20, c='red', marker='x')
-        ax.set_xlabel('Threshold', fontsize=8)
-        ax.set_ylabel(metric, fontsize=8)
-        ax.tick_params(labelsize=6)
+            raise ValueError(f"Title string '{title_str}' not found in eval_results.")
 
-    plt.colorbar(unct_map_im, ax=ax1, orientation='vertical', fraction=0.02, pad=0.04)
+    if savefigs:
+        uncertainty_map_path = output_dir / "mutual_info_uncertainty_map.png"
+        error_map_path = output_dir / "error_map.png"
+        plt.imsave(uncertainty_map_path, 
+                   mutual_info_uncertainty_map, 
+                   cmap='hot', 
+                   vmin=mutual_info_uncertainty_map.min(), 
+                   vmax=mutual_info_uncertainty_map.max())
+        plt.imsave(error_map_path, error_map, cmap='gray', vmin=0, vmax=1)
+        log.info(f"🗺️ Uncertainty map saved to {uncertainty_map_path.name}")
+        log.info(f"🗺️ Error map saved to {error_map_path.name}")
 
-    timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_path = Path(f"outputs/uncertainty_error_{timestamp}.png") if output_path is None else output_path
-    fig.savefig(output_path)
-    log.info(f"😉Uncertainty and error map saved to {output_path}")
-    # plt.show()
+        fig = plt.figure(figsize=(16, 10))
+        outer = gridspec.GridSpec(2, 2, height_ratios=[2, 3], hspace=0.3, wspace=0.3)
 
-    return metrics_by_threshold
+        # === First row: Uncertainty & Error maps ===
+        ax1 = plt.subplot(outer[0, 0])
+        unct_map_im = ax1.imshow(mutual_info_uncertainty_map, cmap='hot', interpolation='nearest')
+        ax1.set_title('Uncertainty Map')
+        ax1.axis('off')
 
+        ax2 = plt.subplot(outer[0, 1])
+        ax2.imshow(error_map, cmap='gray', vmax=1, interpolation='nearest')
+        ax2.set_title('Error Map (0-miss, 1-hit)')
+        ax2.axis('off')
+
+        # === Second row: 8 sub-subplots ===
+        inner_grid = gridspec.GridSpecFromSubplotSpec(2, 3, subplot_spec=outer[1, :], wspace=0.4, hspace=0.4)
+
+        metric_names = ['F1', 'Precision', 'Recall', 'IoU', 'SSIM', 'Hausdorff_Distance']
+        observe_minmax = [1, 1, 1, 1, 1, 0] # 1: observe max, 0: observe min
+        thresholds = metrics_by_threshold['threshold']
+
+        for i, metric in enumerate(metric_names):
+            ax = plt.subplot(inner_grid[i])
+            values = metrics_by_threshold[metric]
+            if observe_minmax[i]:
+                obs_val = max(values)
+                obs_str = 'max'
+                th = thresholds[np.argmax(values)]
+            else:
+                obs_val = min(values)
+                obs_str = 'min'
+                th = thresholds[np.argmin(values)]
+            ax.set_title(f"{metric}({obs_str}={obs_val:.3f}; th={th:.2f})", fontsize=8)
+            ax.scatter(thresholds, values, s=10)
+            ax.scatter(th, obs_val, s=20, c='red', marker='x')
+            ax.set_xlabel('Threshold', fontsize=8)
+            ax.set_ylabel(metric, fontsize=8)
+            ax.tick_params(labelsize=6)
+
+        plt.colorbar(unct_map_im, ax=ax1, orientation='vertical', fraction=0.02, pad=0.04)
+
+        timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        output_path = output_dir / f"uncertainty_error_{timestamp}.png"
+        fig.savefig(output_path)
+        log.info(f"🎆 Uncertainty and error map saved to {output_path}")
+        plt.close(fig)
+
+    return metrics_by_threshold, uncertainty_dict
+
+
+def plot_precision_recall_curve(y_true, y_scores, output_dir: Path = None, 
+                                title_str: str = "", savefig: bool = True) -> dict:
+    """
+    Plot and save the precision-recall curve.
+
+    Parameters:
+    -----------
+    y_true : np.ndarray
+        Ground truth binary labels.
+
+    y_scores : np.ndarray
+        Predicted scores or probabilities.
+
+    output_dir : Path
+        Directory to save the plot.
+
+    title : str
+        Title of the plot.
+
+    output_stem : str
+        Stem for the output filename.
+    """
+
+    pr_dict = calc_precision_recall_curve(y_true, y_scores)  # Ensure the function is called to compute precision and recall
+    if savefig:
+        fig = plt.figure(figsize=(4, 3))
+        plt.plot(pr_dict['recall'], pr_dict['precision'], marker='o', label=f"AUPRC={pr_dict['auprc']:.3f}")
+        plt.xlabel('Recall')
+        plt.ylabel('Precision')
+        plt.title(title_str)
+        plt.grid(True)
+        plt.legend()
+
+        output_path = output_dir / f"PR_curve_{title_str}_auprc{pr_dict['auprc']:.3f}.png"
+        fig.savefig(output_path, bbox_inches='tight', dpi=300)
+        log.info(f"📈 Precision-Recall curve saved to {output_path}")
+        
+        plt.close()
+    return pr_dict
 
 
 def plot_correlation_matrix(corr_matrix, 
@@ -343,7 +355,8 @@ def plot_correlation_matrix(corr_matrix,
 
     output_path = Path(f"outputs/correlation_matrix_{output_stem}.png")
     corr_fig.savefig(output_path)
-    log.info(f"1️Correlation matrix saved to {output_path}")
+    log.info(f"Correlation matrix saved to {output_path}")
+    plt.close(corr_fig)
 
 
 def plot_pca_components(pcs, output_stem = None):
@@ -377,8 +390,8 @@ def plot_pca_components(pcs, output_stem = None):
 
     output_path = Path(f"outputs/pca_components_{output_stem}.png")
     fig.savefig(output_path)
-    log.info(f"2️PCA/MNF/ICA components saved to {output_path}")
-    
+    log.info(f"PCA/MNF/ICA components saved to {output_path}")
+    plt.close(fig)
 
 def plot_rgb_permutations(components, output_stem=None):
     """
@@ -417,7 +430,9 @@ def plot_rgb_permutations(components, output_stem=None):
     if output_stem:
         output_path = f"outputs/{output_stem}_PCs_permutations.png"
         fig.savefig(output_path)
-        log.info(f"3️Saved RGB permutations plot to {output_path}")
+        log.info(f"Saved RGB permutations plot to {output_path}")
+
+    plt.close(fig)
 
 
 def plot_channel_histograms(image_cube, channel_names=None, bins=256, colormap='tab10'):
@@ -448,3 +463,4 @@ def plot_channel_histograms(image_cube, channel_names=None, bins=256, colormap='
         ax.grid(True)
 
     plt.tight_layout()
+    plt.close(fig)

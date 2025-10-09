@@ -1,19 +1,21 @@
-import torch
-from torch.utils.data import Dataset
-from PIL import Image
-import numpy as np
-from torch.utils.data import DataLoader
-from pathlib import Path
-import albumentations as A
-from albumentations.pytorch import ToTensorV2
-from torch.utils.data import DataLoader
-from typing import Tuple, Dict, List
+import argparse
 import json
+import numpy as np
+import torch
 import yaml
+from pathlib import Path
+from PIL import Image
 from pprint import pprint
-from tools.get_mean_std import normalize_img_per_channel
 from sklearn.model_selection import train_test_split
 from sklearn.utils import resample
+from torch.utils.data import Dataset, DataLoader
+from typing import Tuple, Dict, List
+
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
+from tools.get_mean_std import normalize_img_per_channel
+from tools.load_tools import load_config
 
 
 def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
@@ -22,14 +24,19 @@ def subset_dataset_by_count(img_paths, mask_paths, count, seed=42):
     return img_sub, mask_sub
 
 
-def collect_image_mask_pairs(img_dir: Path, mask_dir: Path) -> Tuple[List[Path], List[Path]]:
+def collect_image_mask_pairs(img_dir: Path, mask_dir: Path, dataset_name: str) -> Tuple[List[Path], List[Path]]:
     img_paths = sorted(img_dir.glob("*.npy"))
     mask_paths = sorted(mask_dir.glob("*.png"))
     assert len(img_paths) == len(mask_paths), "Mismatch between images and masks"
     assert len(img_paths) > 0, f"No images found in {img_dir}"
     assert len(mask_paths) > 0, f"No masks found in {mask_dir}"
     for img_path, mask_path in zip(img_paths, mask_paths):
-        match = img_path.stem.split("_image_cube")[0][-4:] == mask_path.stem.split("_segmk")[0][-4:]
+        if 'mangrove' in dataset_name:
+            match = img_path.stem.split("_image_cube")[0][-4:] == mask_path.stem.split("_segmk")[0][-4:]
+        elif 'forestsemantic' in dataset_name or 'SEMANTIC3D' in dataset_name:
+            match = img_path.stem[:8] == mask_path.stem[:8]
+        else:
+            raise ValueError(f"Unknown / New dataset name: {dataset_name}. Set up the matching logic accordingly.")
         assert match, f"Image {img_path.name} does not match mask {mask_path.name}"
     return img_paths, mask_paths
 
@@ -95,6 +102,7 @@ def depad_tensor_vertical_only(tensor: torch.Tensor, original_height: int) -> to
 
 class SegmentationPatchDataset(Dataset):
     def __init__(self, 
+                 dataset_name: str,
                  image_file_paths, 
                  mask_paths=None,
                  input_channels=None,
@@ -108,6 +116,7 @@ class SegmentationPatchDataset(Dataset):
         self.patch_splits = patch_splits
         self.transform = transform
         self.buffer_size = buffer_size
+        self.dataset_name = dataset_name
         self.patch_idx_ls = [(i, p) for i in range(len(self.image_file_paths)) for p in range(patch_splits)]
 
     def __len__(self):
@@ -121,6 +130,9 @@ class SegmentationPatchDataset(Dataset):
         image_cube = image_cube[:, :, self.input_channels]
         image_cube = normalize_img_per_channel(image_cube)
         mask = np.array(Image.open(self.mask_paths[i]))
+
+        if 'SEMANTIC3D' in self.dataset_name.upper():
+            mask[mask == 9] = 0  # Set 'Void' to 0
 
         full_h, full_w = image_cube.shape[:2]
         tile_w = full_w // self.patch_splits
@@ -196,20 +208,18 @@ class ChannelShuffleGroups(A.ImageOnlyTransform):
         return out
 
 
-def trasform_by_channls(input_channels:list, p=0.5):
+def transform_by_channels(input_channels: list, p=0.5):
     """
+    Create data augmentation transforms for the given input channels.
     
-    p: probability of applying the transform
+    Args:
+        input_channels (list): List of input channel indices
+        p (float): Probability of applying the transform
     """
-    if len(input_channels) == 3:
-        shuffle_groups = [[0, 1, 2]]
-    elif len(input_channels) == 6:
-        shuffle_groups = [[0, 1, 2], [3, 4, 5]]
-    elif len(input_channels) == 9:
-        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8]]
-    elif len(input_channels) == 15:
-        shuffle_groups = [[0, 1, 2], [3, 4, 5], [6, 7, 8], 
-                          [9, 10, 11], [12, 13, 14]]
+    if len(input_channels) % 3 != 0:
+        raise ValueError(f"Number of input channels must be divisible by 3, got {len(input_channels)}")
+    
+    shuffle_groups = [[i, i+1, i+2] for i in range(0, len(input_channels), 3)]
 
     transform = A.Compose([
         ChannelShuffleGroups(groups=shuffle_groups, p=p),
@@ -224,18 +234,19 @@ def trasform_by_channls(input_channels:list, p=0.5):
 
 
 def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoader, DataLoader, DataLoader]:
-
+    """Load and prepare data loaders for training, validation, and testing."""
     root_dir = Path(config["root_dir"])
     num_workers = config['num_workers']
     patches_per_image = config['patches_per_image']
     batch_size = config['train_batch_size']
     input_size = config['input_size']
-
-    train_transform = trasform_by_channls(input_channels=input_channels)
+    val_ratio = config['val_ratio']
+    dataset_name = config['dataset_name']
+    train_transform = transform_by_channels(input_channels=input_channels)
     val_transform = A.Compose([ToTensorV2()], additional_targets={'mask': 'mask'})
 
     trainval_img_paths, trainval_mask_paths = collect_image_mask_pairs(
-        root_dir / "train_val/img_cube", root_dir / "train_val/mask"
+        root_dir / "train_val/img_cube", root_dir / "train_val/mask", dataset_name
     )
 
     if train_subset_cnt < len(trainval_img_paths):
@@ -247,7 +258,7 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     train_img_paths, val_img_paths, train_mask_paths, val_mask_paths = train_test_split(
         trainval_img_paths,
         trainval_mask_paths,
-        test_size=config.get("val_ratio", 0.1),
+        test_size=val_ratio,
         shuffle=True,
         random_state=42
     )
@@ -255,20 +266,20 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
     buffer_size = choose_buffer_size(tile_w, multiple_of=32)
     print(f"Using adaptive buffer size horizontally: {buffer_size}")
     train_dataset = SegmentationPatchDataset(
-        train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform, buffer_size=buffer_size
+        dataset_name, train_img_paths, train_mask_paths, input_channels, patches_per_image, train_transform, buffer_size=buffer_size
     )
     val_dataset = SegmentationPatchDataset(
-        val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
+        dataset_name, val_img_paths, val_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
     )
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers)
 
     test_img_paths, test_mask_paths = collect_image_mask_pairs(
-        root_dir / "test/img_cube", root_dir / "test/mask"
+        root_dir / "test/img_cube", root_dir / "test/mask", dataset_name
     )
     test_dataset = SegmentationPatchDataset(
-        test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
+        dataset_name, test_img_paths, test_mask_paths, input_channels, patches_per_image, val_transform, buffer_size=buffer_size
     )
     test_loader = DataLoader(test_dataset, batch_size=patches_per_image, shuffle=False, num_workers=num_workers)
 
@@ -277,15 +288,17 @@ def load_data(config, input_channels=None, train_subset_cnt=30) -> Tuple[DataLoa
 
 
 if __name__ == "__main__":
-    config_file = 'params/paths_zmachine_mangrove3d.json'
-    with open(config_file, 'r') as f:
-        config = json.load(f)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    print(f"Using device: {device}")
-        
-    input_channels = config['input_channels_ls'][0]
-    train_subset_cnt = config.get('train_subset_cnt', 30)
-    train_loader, val_loader, test_loader = load_data(config, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
+    parser = argparse.ArgumentParser(description='Prepare dataset for segmentation')
+    parser.add_argument('--config', type=str, default='params/paths_rc_forestsemantic.json',
+                        help='Path to the configuration JSON file')
+    args = parser.parse_args()
+    
+    CONFIG = load_config(args.config)
+    print(f"Using config file: {args.config}")
+    
+    input_channels = CONFIG['input_channels_ls'][0]
+    train_subset_cnt = CONFIG['train_subset_cnts'][0]
+    train_loader, val_loader, test_loader = load_data(CONFIG, input_channels=input_channels, train_subset_cnt=train_subset_cnt)
     print(f"Train samples: {len(train_loader.dataset)}")
     print(f"Val samples: {len(val_loader.dataset)}")
     print(f"Test samples: {len(test_loader.dataset)}")
@@ -299,5 +312,3 @@ if __name__ == "__main__":
 
     imgs, masks, buffer_masks = next(iter(test_loader))
     print(f"test loader Image batch shape: {imgs.shape}, \nMask batch shape: {masks.shape}, \nBuffer Mask batch shape: {buffer_masks.shape}")
-    
-    

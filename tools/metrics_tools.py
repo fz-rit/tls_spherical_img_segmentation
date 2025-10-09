@@ -6,6 +6,11 @@ from skimage.morphology import binary_erosion
 from sklearn.metrics import confusion_matrix, mutual_info_score
 from typing import Tuple
 from sklearn.decomposition import PCA, FastICA
+from sklearn.metrics import precision_recall_curve, average_precision_score
+from pathlib import Path
+from tools.logger_setup import Logger
+
+log = Logger()
 
 def compare_binary_image_metrics(src_img: np.ndarray, target_image: np.ndarray) -> dict:
     assert src_img.shape == target_image.shape, f"Binary images must have the same shape: {src_img.shape} vs {target_image.shape}"
@@ -75,13 +80,16 @@ def compare_binary_maps(uncertainty_map: np.ndarray, error_map: np.ndarray) -> d
     return metrics_by_threshold
 
 
-def calculate_segmentation_statistics(true_flat: np.ndarray, 
+def calc_segmentation_statistics(true_flat: np.ndarray, 
                  pred_flat: np.ndarray, 
-                 num_classes: int) -> dict:
+                 num_classes: int
+                 ) -> dict:
     """
     Calculate evaluation metrics for semantic segmentation.
     """
-    original_conf_mtx = confusion_matrix(true_flat, pred_flat, labels=np.arange(num_classes))
+    original_conf_mtx = confusion_matrix(true_flat, pred_flat, 
+                                        #  labels=np.arange(num_classes)
+                                         )
 
     conf_mtx = original_conf_mtx.copy()
     # Keep only the classes that appear in either true or pred
@@ -138,7 +146,7 @@ def calc_oAccu_mIoU(true_flat: np.ndarray,
     mIoU (float): Mean intersection over union.
     """
 
-    metrics_dict = calculate_segmentation_statistics(true_flat, pred_flat, num_classes)
+    metrics_dict = calc_segmentation_statistics(true_flat, pred_flat, num_classes)
     oAcc = metrics_dict['oAcc']
     mIoU = metrics_dict['mIoU']
     return oAcc, mIoU
@@ -260,6 +268,131 @@ def compute_ica(image, n_components=3):
     ica_components = ica_result.T.reshape(n_components, H, W)
 
     return ica_components
+
+
+def uncertainty_vs_error(eval_results, verbose=True):
+
+    true_mask = eval_results['true_mask']
+    pred_mask = eval_results['pred_mask']
+    mutual_info_uncertainty_map = eval_results['mutual_info']
+    error_map = np.zeros_like(true_mask)
+    error_map[true_mask != pred_mask] = 1
+    metrics_dict = compare_binary_maps(mutual_info_uncertainty_map, error_map)
+
+    if verbose:
+        log.info(f"Metrics comparing uncertainty map with error map: {metrics_dict}")
+
+    return mutual_info_uncertainty_map, error_map, metrics_dict
+
+def calc_precision_recall_curve(y_true, y_scores):
+    """
+    Calculate precision-recall curve and AUPRC.
+
+    Args:
+        y_true (np.ndarray): True binary labels (1D).
+        y_scores (np.ndarray): Predicted scores/probabilities (1D).
+
+    Returns:
+        dict: Dictionary containing precision, recall, thresholds, and AUPRC.
+    """
+    # Flatten if necessary
+    y_true = np.ravel(y_true)
+    y_scores = np.ravel(y_scores)
+
+    if y_true.shape != y_scores.shape:
+        raise ValueError("Shapes of y_true and y_scores must match.")
+    
+    if not np.all(np.isin(y_true, [0, 1])):
+        raise ValueError("y_true must be binary (0 or 1).")
+    
+    def quantize_scores(y_scores, n_bins=100):
+        """
+        Quantize y_scores into n_bins evenly spaced values between min and max.
+        """
+        min_score, max_score = np.min(y_scores), np.max(y_scores)
+        bins = np.linspace(min_score, max_score, n_bins)
+        quantized = np.digitize(y_scores, bins, right=True)
+        return bins[quantized - 1]  # map back to bin values
+    
+
+    quantized_scores = quantize_scores(y_scores, n_bins=100)
+    top_99th_percentile = np.percentile(quantized_scores, 99.6)
+    quantized_scores[quantized_scores > top_99th_percentile] = top_99th_percentile
+    precision, recall, thresholds = precision_recall_curve(y_true, quantized_scores)
+    auprc = average_precision_score(y_true, quantized_scores)
+
+    return {
+        'precision': precision,
+        'recall': recall,
+        'thresholds': thresholds,
+        'auprc': round(auprc, 4)
+    }
+
+
+def calc_image_entropy(image: np.ndarray, num_bins: int = 256) -> float:
+    """
+    Compute entropy of a single-channel image.
+
+    Parameters:
+    -----------
+    image : np.ndarray
+        A 2D array representing a grayscale or binary image.
+        Can be float (e.g., [0, 1]) or int (e.g., 0 and 1 for binary).
+    num_bins : int
+        Number of bins to use if the image contains continuous values.
+
+    Returns:
+    --------
+    float
+        The entropy value of the image.
+    """
+    image = image.flatten()
+
+    # Handle binary case (only 0 and 1)
+    if np.array_equal(np.unique(image), [0]) or np.array_equal(np.unique(image), [1]) or \
+       np.array_equal(np.unique(image), [0, 1]):
+        p1 = np.mean(image == 1)
+        p0 = 1.0 - p1
+        entropy = 0.0
+        if p0 > 0:
+            entropy -= p0 * np.log2(p0)
+        if p1 > 0:
+            entropy -= p1 * np.log2(p1)
+        return round(entropy, 4)
+
+    normalized_img = (image - image.min()) / (image.max() - image.min() + 1e-8)
+
+    # General case: continuous values → bin into histogram
+    hist, _ = np.histogram(normalized_img, bins=num_bins, range=(0, 1), density=True)
+    # hist = hist[hist > 0]  # remove zero bins to avoid log2(0)
+    # entropy = -np.sum(hist * np.log2(hist))
+    hist = hist.astype(float)
+    hist_sum = np.sum(hist)
+    if hist_sum > 0:
+        prob = hist / hist_sum
+        prob = prob[prob > 0]  # Remove zeros
+        entropy = -np.sum(prob * np.log2(prob))
+    else:
+        entropy = 0.0
+    return round(entropy, 4)
+
+def average_uncertainty_metrics_across_images(uncertainty_metrics: list) -> dict:
+    """
+    Average uncertainty metrics across multiple images.
+
+    Args:
+        uncertainty_metrics (list): List of dictionaries containing uncertainty metrics for each image.
+
+    Returns:
+        dict: Dictionary with averaged metrics.
+    """
+
+    avg_metrics = {}
+    for key in uncertainty_metrics[0].keys():
+        avg_metrics[key] = np.round(np.mean([m[key] for m in uncertainty_metrics]), 4)
+
+    return avg_metrics
+
 
 if __name__ == "__main__":
     img1 = np.random.randint(0, 2, (256, 256))

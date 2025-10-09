@@ -2,7 +2,6 @@
 import logging
 import time
 from pathlib import Path
-from tools.load_tools import CONFIG
 
 # get current directory
 current_dir = Path(__file__).parent.resolve()
