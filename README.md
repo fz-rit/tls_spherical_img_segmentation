@@ -1,11 +1,11 @@
-# TLS Unwrapped Image Segmentation
+# Sphrical Image Segmentation for TLS
 
-Semantic segmentation on unwrapped images generated from Terrestrial Laser Scanning (TLS) point clouds. This project implements ensemble deep learning models for forest semantic segmentation using multi-channel image data.
+Semantic segmentation on multi-channel spherical images generated from Terrestrial Laser Scanning (TLS) point clouds. This project implements ensemble deep learning models for forest semantic segmentation using multi-channel image data.
 
 ## Features
 
 - **Multi-channel image segmentation** using RGB and additional spectral channels
-- **Ensemble model architecture** supporting UNet++, DeepLabV3+, and Segformer
+- **Ensemble model architecture** supporting UNet++, DeepLabV3+, and Segformer2
 - **Uncertainty quantification** through model ensemble predictions
 - **Comprehensive evaluation metrics** including IoU, accuracy, and uncertainty analysis
 - **Flexible configuration system** for different datasets and model configurations
