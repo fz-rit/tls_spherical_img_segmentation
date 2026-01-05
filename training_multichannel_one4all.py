@@ -15,6 +15,8 @@ from pprint import pformat
 from tools.earlystopping import EarlyStopping
 from tools.logger_setup import Logger
 from tools.feature_fusion_helper import build_model_for_multi_channels, JointLoss
+from tools.profile_model import ModelProfiler
+from tools.training_profiler import TrainingProfiler
 
 log = Logger()
 IGNORE_VAL = 255
@@ -56,6 +58,33 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
         raise RuntimeError("CUDA is not available. Please check your PyTorch installation.")
     model = model.to('cuda')
 
+    # =========================================================================
+    # PROFILING: Initialize profilers
+    # =========================================================================
+    # 1. Static model profiling (params, FLOPs)
+    model_profiler = ModelProfiler(
+        model=model,
+        input_shape=tuple(dummy_shape),
+        device='cuda',
+        model_name=f"{out_file_str}_ch{channel_info_str}"
+    )
+    
+    log.info("📊 Profiling static metrics...")
+    static_metrics = model_profiler.profile_static_metrics()
+    hw_info = model_profiler.get_hardware_info()
+    log.info(f"  Parameters: {static_metrics['trainable_params']:,}")
+    log.info(f"  GFLOPs: {static_metrics['gflops']:.2f}")
+    log.info(f"  GPU: {hw_info.get('gpu_name', 'N/A')}")
+    
+    # 2. Training profiler (time, memory per epoch)
+    train_loss_save_dir = train_out_root_dir / 'outputs' / out_file_str
+    train_profiler = TrainingProfiler(
+        log_dir=train_loss_save_dir,
+        device='cuda',
+        use_tensorboard=config.get('use_tensorboard', True)
+    )
+    # =========================================================================
+
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
     loss_fn = JointLoss(
         smp.losses.DiceLoss(mode='multiclass', ignore_index=IGNORE_VAL),
@@ -70,12 +99,16 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
 
     early_stopper = EarlyStopping(patience=config['early_stop_patience'], mode='loss')
     best_val_loss = float('inf')
-    best_model_state = None  # For storing state_dict of the best model
+    best_model_state = None
+    best_epoch = 0
 
     # -------------------------------------------------------------------------
-    # 3. Training loop
+    # 3. Training loop with profiling
     # -------------------------------------------------------------------------
     for epoch in range(pretrained_epoch, epoch_num):
+        # Start epoch profiling
+        train_profiler.start_epoch()
+        
         model.train()
         train_loss = 0
         y_true_train, y_pred_train = [], []
@@ -110,9 +143,7 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
         train_oAccus.append(train_oAccu)
         train_mIoUs.append(train_mIoU)
 
-        # ---------------------
-        #   Validation phase
-        # ---------------------
+        # Validation phase
         model.eval()
         val_loss = 0
         y_true_val, y_pred_val = [], []
@@ -130,7 +161,6 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
                 loss = loss_fn(preds, core_masks)
                 val_loss += loss.item()
 
-                
                 preds_labels = torch.argmax(preds, dim=1)
                 y_true_val.append(core_masks[valid_mask].cpu().numpy().ravel())
                 y_pred_val.append(preds_labels[valid_mask].cpu().numpy().ravel())
@@ -145,17 +175,25 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
         val_oAccus.append(val_oAccu)
         val_mIoUs.append(val_mIoU)
 
-        log.info(f" {epoch + 1}/{epoch_num} | "
+        # End epoch profiling (logs time, memory, metrics)
+        train_profiler.end_epoch(
+            epoch=epoch + 1,
+            train_loss=train_loss,
+            val_loss=val_loss,
+            train_metrics={'oAcc': train_oAccu, 'mIoU': train_mIoU},
+            val_metrics={'oAcc': val_oAccu, 'mIoU': val_mIoU}
+        )
+
+        log.info(f"Epoch {epoch + 1}/{epoch_num} | "
               f"Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f} | "
               f"Train oAcc: {train_oAccu:.4f}, mIoU: {train_mIoU:.4f} | "
               f"Val oAcc: {val_oAccu:.4f}, mIoU: {val_mIoU:.4f}")
 
-        # ---------------------------------------------------------------------
-        #  Update best model if the current validation loss is better
-        # ---------------------------------------------------------------------
+        # Update best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
             best_model_state = copy.deepcopy(model.state_dict())
+            best_epoch = epoch + 1
 
         early_stopper(val_loss)
         save_by_interval = (epoch + 1) % config['model_save_interval'] == 0
@@ -174,9 +212,41 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
             log.info("⏹ Early stopping triggered!")
             break
 
-    # -------------------------------------------------------------------------
-    # 4. After the loop: Optionally save the best model
-    # -------------------------------------------------------------------------
+    # =========================================================================
+    # POST-TRAINING: Collect and save profiling results
+    # =========================================================================
+    # Get training summary
+    training_summary = train_profiler.get_summary()
+    log.info(f"📊 Training complete: {training_summary['total_training_time_min']:.2f} min")
+    log.info(f"   Peak GPU memory: {training_summary['peak_memory_mb']:.1f} MB")
+    
+    # Close TensorBoard
+    train_profiler.close()
+    
+    # Combine all metrics
+    model_profiler.metrics.update({
+        'config_file': config.get('_config_path', 'unknown'),
+        'train_subset_cnt': train_subset_cnt,
+        'input_channels': channel_info_str,
+        'num_classes': num_classes,
+        'best_epoch': best_epoch,
+        'best_val_loss': round(best_val_loss, 4),
+        'final_train_loss': round(train_losses[-1], 4),
+        'final_val_oAcc': round(val_oAccus[-1], 4),
+        'final_val_mIoU': round(val_mIoUs[-1], 4),
+    })
+    model_profiler.metrics.update(training_summary)
+    
+    # Save complete profile
+    profile_json = train_loss_save_dir / f'profile_{channel_info_str}_{time.strftime("%Y%m%d_%H%M%S")}.json'
+    model_profiler.save_metrics(profile_json, format='json')
+    
+    # Also save as CSV for easy aggregation
+    profile_csv = train_loss_save_dir / f'profile_{channel_info_str}.csv'
+    model_profiler.save_metrics(profile_csv, format='csv')
+    # =========================================================================
+
+    # Save best model
     if save_model and best_model_state is not None:
         model.load_state_dict(best_model_state)
         timestr = time.strftime("%Y%m%d_%H%M%S")
@@ -190,11 +260,8 @@ def train_model(config, train_subset_cnt, input_channels, model_setup_dict,
         )
         log.info(f"✅ Best model saved with val_loss = {best_val_loss:.4f}")
 
-    # -------------------------------------------------------------------------
-    # 5. Save plots and return
-    # -------------------------------------------------------------------------
+    # Save plots
     timestr = time.strftime("%Y%m%d_%H%M%S")
-    train_loss_save_dir = train_out_root_dir / 'outputs' / out_file_str
     train_loss_save_dir.mkdir(parents=True, exist_ok=True)
     plt_save_path = train_loss_save_dir / f'losses_{channel_info_str}_{timestr}.png'
     plot_training_validation_losses(train_losses, val_losses, plt_save_path)
@@ -222,6 +289,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     CONFIG = load_config(args.config)
+    CONFIG['_config_path'] = args.config  # Store config path for profiling
     print(f"Using config file: {args.config}")
     
     log.info(pformat(CONFIG))

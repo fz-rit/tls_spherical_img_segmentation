@@ -7,10 +7,10 @@
     ],
     "model_dir": "models",
     "ensemble_config": [
-    {"arch": "UnetPlusPlus", "encoder": "resnet34",      "name": "unetpp_r34"},
-    {"arch": "DeepLabV3Plus", "encoder": "efficientnet-b3", "name": "dlabv3p_effiB3"},
-    {"arch": "Segformer",     "encoder": "mit_b1",       "name": "segformer_b1"}
-],
+        {"arch": "UnetPlusPlus", "encoder": "resnet34", "name": "unetpp_r34"},
+        {"arch": "DeepLabV3Plus", "encoder": "efficientnet-b3", "name": "dlabv3p_effiB3"},
+        {"arch": "Segformer", "encoder": "mit_b1", "name": "segformer_b1"}
+    ],
     "num_workers": 0,
     "input_size": [540, 1440],
     "num_classes": 6,
@@ -22,10 +22,11 @@
     "model_save_interval": 80,
     "stop_early": true,
     "early_stop_patience": 5,
-    "test_img_idx_ls": [0, 1, 2, 3, 4, 5, 6, 7, 8],
-    "eval_gt_available_ls": [true, true, true, true, true, true, true, true, true],
+    "test_img_idx_ls": [0, 1, 2, 3],
+    "eval_gt_available_ls": [true, true, true, true],
     "eval_imshow": false,
     "save_uncertainty_figs": true,
     "save_onnx": false,
-    "pretrained_model_file": ""
+    "pretrained_model_file": "",
+    "use_tensorboard": true
 }

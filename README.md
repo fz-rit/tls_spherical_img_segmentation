@@ -43,6 +43,9 @@ conda install -c conda-forge pytorch torchvision opencv tensorboard seaborn -y
 
 # Install additional packages
 pip install albumentations segmentation-models-pytorch
+
+# Install profiling packages
+pip install torchinfo fvcore pandas
 ```
 
 ## Usage
