@@ -129,7 +129,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     root = Path(args.root)
-    output_csv = Path(args.output)
+    output_csv = root / args.output
     
     print(f"🔍 Searching for profile JSONs in {root}...")
     profile_files = collect_profile_jsons(root)

@@ -54,6 +54,10 @@ class ModelProfiler:
         Compute static model properties (params, FLOPs).
         These are deterministic and input-shape dependent.
         """
+        # Ensure model is in eval mode for profiling
+        original_mode = self.model.training
+        self.model.eval()
+        
         # 1. Parameter count using torchinfo
         # This gives us trainable vs total params
         model_stats = summary(
@@ -71,7 +75,6 @@ class ModelProfiler:
         dummy_input = torch.randn(self.input_shape).to(self.device)
         flops = FlopCountAnalysis(self.model, dummy_input)
         total_flops = flops.total()
-        
         # Convert to GFLOPs (standard for papers)
         gflops = total_flops / 1e9
         
@@ -81,6 +84,10 @@ class ModelProfiler:
             'total_flops': int(total_flops),
             'gflops': round(gflops, 3)
         })
+        
+        # Restore original training mode
+        if original_mode:
+            self.model.train()
         
         return {
             'total_params': total_params,

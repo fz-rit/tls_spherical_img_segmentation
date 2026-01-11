@@ -52,53 +52,6 @@ def load_ensemble_models(config: dict, input_channels:list, eval_out_root_dir: P
     return models
 
 
-# def ensemble_predict(models, imgs, buf_masks):
-#     imgs = imgs.to("cuda")
-#     buf_masks = buf_masks.to("cuda")  # [B, 1, H, W]
-#     mask = buf_masks.squeeze(1)       # [B, H, W]
-
-#     P_all = []  # [M, B, C, H, W]
-
-#     for model in models:
-#         model.eval()
-#         with torch.no_grad():
-#             logits = model(imgs)                   # [B, C, H, W]
-#             probs = torch.softmax(logits, dim=1)   # [B, C, H, W]
-#             P_all.append(probs)
-
-#     P_all_stack = torch.stack(P_all)               # [M, B, C, H, W]
-#     P_mean = P_all_stack.mean(dim=0)               # [B, C, H, W]
-#     P_var = P_all_stack.var(dim=0)                 # [B, C, H, W]
-
-#     # Uncertainty maps
-#     var_based_epistemic = P_var.sum(dim=1)         # [B, H, W]
-#     entropy = -torch.sum(P_mean * torch.log(P_mean + 1e-8), dim=1)  # [B, H, W]
-#     expected_entropy = -torch.stack([
-#         torch.sum(P_i * torch.log(P_i + 1e-8), dim=1) for P_i in P_all
-#     ]).mean(dim=0)                                 # [B, H, W]
-#     mutual_info = entropy - expected_entropy       # [B, H, W]
-
-#     # Apply buffer mask to outputs
-#     P_mean = P_mean * mask.unsqueeze(1)                 # [B, C, H, W]
-#     var_based_epistemic = var_based_epistemic * mask    # [B, H, W]
-#     entropy = entropy * mask                            # [B, H, W]
-#     mutual_info = mutual_info * mask                    # [B, H, W]
-
-#     assert (P_mean.shape[0], P_mean.shape[2], P_mean.shape[3]) == entropy.shape == \
-#         var_based_epistemic.shape == mutual_info.shape, \
-#         f"Shapes mismatch: P_mean: {P_mean.shape}, entropy: {entropy.shape}, " \
-#         f"var_based_epistemic: {var_based_epistemic.shape}, mutual_info: {mutual_info.shape}"
-
-#     pred_dict = {
-#         "pred": P_mean.argmax(dim=1),                  # [B, H, W]
-#         "total_uncertainty": entropy,                  # [B, H, W]
-#         "var_based_epistemic": var_based_epistemic,    # [B, H, W]
-#         "mutual_info": mutual_info                     # [B, H, W]
-#     }
-
-#     return pred_dict
-
-
 def ensemble_predict_with_uncertainty(models, imgs, buf_masks=None):
     """
     Compute ensemble prediction and uncertainty using logits averaging.
@@ -141,7 +94,6 @@ def ensemble_predict_with_uncertainty(models, imgs, buf_masks=None):
 
     # --- Apply optional mask ---
     if buf_masks is not None:
-        # buf_masks is already on CUDA from line 119
         # Check if buf_masks needs dimension adjustment
         if buf_masks.dim() == 3:  # [B, H, W]
             buf_mask_for_pmean = buf_masks.unsqueeze(1)  # [B, 1, H, W]
@@ -216,6 +168,77 @@ def stitch_buffered_tiles(tiles: torch.Tensor, buf_mask_ls: list[torch.Tensor]) 
     
     return full.cpu().numpy()
 
+
+
+def evaluate_single_model(model, img_tiles, true_masks, buf_masks, config, 
+                          input_channels: list, gt_available: bool, out_dir: Path,
+                          show_now=False):
+    """
+    Evaluate a single model on image tiles (no uncertainty).
+    
+    Args:
+        model: Single trained model
+        img_tiles: Input images [B, C, H, W]
+        true_masks: Ground truth masks [B, H, W]
+        buf_masks: Buffer masks [B, H, W] or [B, 1, H, W]
+        config: Configuration dictionary
+        input_channels: List of input channels
+        gt_available: Whether ground truth is available
+        out_dir: Output directory
+        show_now: Whether to show plots
+    
+    Returns:
+        dict with pred_mask, true_mask, and evaluation results
+    """
+    num_classes = config['num_classes']
+    input_h = config['input_size'][0]
+    
+    model.eval()
+    img_tiles_cuda = img_tiles.to("cuda")
+    buf_masks_cuda = buf_masks.to("cuda")
+    
+    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    start_time = time.time()
+    with torch.no_grad():
+        logits = model(img_tiles_cuda)  # [B, C, H, W]
+        pred = logits.argmax(dim=1)  # [B, H, W]
+    torch.cuda.synchronize() if torch.cuda.is_available() else None
+    forward_time = time.time() - start_time
+    
+    img_tiles = img_tiles.cpu()
+    pred = pred.cpu()
+    
+    if img_tiles.shape[1] > 3:
+        img_tiles = img_tiles[:, :3, :, :]
+    
+    # Depad before stitching
+    depad_img_tiles = [depad_tensor_vertical_only(img, original_height=input_h) for img in img_tiles]
+    depat_buf_masks = [depad_tensor_vertical_only(mask, original_height=input_h) for mask in buf_masks]
+    stitched_img = stitch_buffered_tiles(torch.stack(depad_img_tiles), depat_buf_masks)
+    stitched_img = stitched_img.transpose(1, 2, 0)  # [H, W, C]
+    
+    stitched_pred_mask = post_process_pred_batch(pred, input_h, buf_mask_ls=depat_buf_masks)
+    stitched_true_mask = post_process_pred_batch(true_masks, input_h, buf_mask_ls=depat_buf_masks) if \
+        gt_available else np.zeros_like(stitched_pred_mask)
+    
+    eval_results = {
+        "true_mask": stitched_true_mask,
+        "pred_mask": stitched_pred_mask,
+        "uncertainty_dict": {}  # Empty dict for individual model (no uncertainty)
+    }
+    
+    visualize_eval_output(stitched_img,
+                          eval_results,
+                          num_classes=num_classes,
+                          input_channels=input_channels,
+                          config=config,
+                          out_dir=out_dir,
+                          gt_available=gt_available)
+    
+    if show_now:
+        plt.show()
+    
+    return eval_results, forward_time
 
 
 def evaluate_single_img(img_tiles, 
