@@ -1,11 +1,11 @@
-# TLS Unwrapped Image Segmentation
+# Sphrical Image Segmentation for TLS
 
-Semantic segmentation on unwrapped images generated from Terrestrial Laser Scanning (TLS) point clouds. This project implements ensemble deep learning models for forest semantic segmentation using multi-channel image data.
+Semantic segmentation on multi-channel spherical images generated from Terrestrial Laser Scanning (TLS) point clouds. This project implements ensemble deep learning models for forest semantic segmentation using multi-channel image data.
 
 ## Features
 
 - **Multi-channel image segmentation** using RGB and additional spectral channels
-- **Ensemble model architecture** supporting UNet++, DeepLabV3+, and Segformer
+- **Ensemble model architecture** supporting UNet++, DeepLabV3+, and Segformer2
 - **Uncertainty quantification** through model ensemble predictions
 - **Comprehensive evaluation metrics** including IoU, accuracy, and uncertainty analysis
 - **Flexible configuration system** for different datasets and model configurations
@@ -32,10 +32,6 @@ Semantic segmentation on unwrapped images generated from Terrestrial Laser Scann
 
 ## Installation
 
-### Prerequisites
-- Python 3.9
-- CUDA-capable GPU (recommended)
-
 ### Environment Setup
 ```bash
 # Create conda environment
@@ -47,6 +43,9 @@ conda install -c conda-forge pytorch torchvision opencv tensorboard seaborn -y
 
 # Install additional packages
 pip install albumentations segmentation-models-pytorch
+
+# Install profiling packages
+pip install torchinfo fvcore pandas
 ```
 
 ## Usage
@@ -96,32 +95,7 @@ The evaluation script will:
 - Export detailed metrics to files
 
 ## Configuration
-
-### Dataset Configuration (`paths_*.json`)
-```json
-{
-    "dataset_name": "forestsemantic",
-    "root_dir": "/path/to/your/dataset",
-    "input_channels_ls": [[0, 1, 2]],  // RGB channels
-    "num_classes": 8,
-    "input_size": [600, 1200],
-    "train_batch_size": 10
-}
-```
-
-### Model Configuration (`config_*.json`)
-```json
-{
-    "ensemble_config": [
-        {"arch": "UnetPlusPlus", "encoder": "resnet34", "name": "unetpp_r34"},
-        {"arch": "DeepLabV3Plus", "encoder": "efficientnet-b3", "name": "dlabv3p_effiB3"},
-        {"arch": "Segformer", "encoder": "mit_b1", "name": "segformer_b1"}
-    ],
-    "max_epoch_num": 100,
-    "early_stop_patience": 5,
-    "train_subset_cnts": [10, 20, 30]
-}
-```
+Use JSON files in the `params/` directory to configure dataset paths, model parameters, training settings, and evaluation options.
 
 ## Supported Models
 
@@ -159,29 +133,15 @@ Ensemble predictions provide uncertainty estimates, helping identify regions whe
 - Model checkpointing
 - Comprehensive logging
 
-## Troubleshooting
+## Citation
+If you use this code for your research, please cite:
 
-### Common Issues
-
-1. **CUDA Out of Memory**: Reduce `train_batch_size` in configuration
-2. **Dataset Path Errors**: Verify paths in configuration files
-3. **Missing Dependencies**: Ensure all packages are installed correctly
-
-### Performance Tips
-
-- Use larger batch sizes if GPU memory allows
-- Adjust `num_workers` based on your system
-- Consider mixed precision training for faster training
-
-## Contributing
-
-When adding new features:
-1. Update configuration schemas as needed
-2. Add proper logging statements
-3. Include visualization functions for new metrics
-4. Update this README with new usage instructions
-
-## License
-
-This project is part of research on TLS-based forest analysis and semantic segmentation.
+```bibtex
+@article{zhang2025through,
+  title={Through the Perspective of LiDAR: A Feature-Enriched and Uncertainty-Aware Annotation Pipeline for Terrestrial Point Cloud Segmentation},
+  author={Zhang, Fei and Chancia, Rob and Clapp, Josie and Hassanzadeh, Amirhossein and Dera, Dimah and MacKenzie, Richard and van Aardt, Jan},
+  journal={arXiv preprint arXiv:2510.06582},
+  year={2025}
+}
+```
 
